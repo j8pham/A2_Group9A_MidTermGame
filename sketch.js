@@ -6,19 +6,26 @@ const TERM_VEL   = 16;
 const WORLD_W    = 2350;
 
 const FOCUS_RADIUS          = 200;
-const FOCUS_FADE_FRAMES     = 90;   // 1.5 s at 60 fps
-const FOCUS_COOLDOWN_FRAMES = 210;  // 3.5 s at 60 fps
+const FOCUS_FADE_FRAMES     = 90;   // 1.5 s
+const FOCUS_COOLDOWN_FRAMES = 210;  // 3.5 s
+
+// Intro sequence timings (frames at 60 fps)
+const INTRO_NORMAL_F = 120; // 2.0 s — full vision, free movement
+const INTRO_SHAKE_F  = 30;  // 0.5 s — screen shake
+const INTRO_FLASH_F  = 30;  // 0.5 s — white flash fade-out
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let player;
 let platforms;
 let camX = 0;
 
-// Focus mechanic
-let focusActive   = false; // F is held and focus is engaged
-let focusFade     = 0;     // 0..1 — drives highlight alpha; decays to 0 after release
-let focusCooldown = 0;     // frames until Focus is usable again
-let prevFocusKey  = false; // F-key state last frame, for press-edge detection
+let gameState  = "start"; // "start" | "intro" | "play"
+let introTimer = 0;
+
+let focusActive   = false;
+let focusFade     = 0;
+let focusCooldown = 0;
+let prevFocusKey  = false;
 
 const LIGHT_SOURCES = [
   { x: 200,  y: 0, w: 300, h: 450, phase: 0.0,  speed: 0.038 },
@@ -51,12 +58,27 @@ function setup() {
 
 // ── Main Loop ─────────────────────────────────────────────────────────────────
 function draw() {
-  background(18, 16, 22);
+  if (gameState === "start") {
+    drawStartScreen();
+    return;
+  }
 
-  updateFocus();
+  // Physics runs in both "intro" and "play"
   updatePlayer();
   updateCamera();
 
+  if (gameState === "intro") {
+    introTimer++;
+    drawIntroScene();
+    if (introTimer >= INTRO_NORMAL_F + INTRO_SHAKE_F + INTRO_FLASH_F) {
+      gameState = "play";
+    }
+    return;
+  }
+
+  // ── "play" — permanent low vision, no way back ──
+  updateFocus();
+  background(18, 16, 22);
   push();
   translate(-camX, 0);
   drawLights();
@@ -64,32 +86,108 @@ function draw() {
   drawPlayer();
   drawFocusIndicator();
   pop();
+  drawVignette();
+}
+
+// ── Start Screen ──────────────────────────────────────────────────────────────
+function drawStartScreen() {
+  background(18, 16, 22);
+
+  textAlign(CENTER, CENTER);
+  noStroke();
+
+  // Title
+  textSize(72);
+  textStyle(BOLD);
+  fill(255);
+  text("FOCUS", width / 2, height / 2 - 72);
+
+  // Cyan rule beneath title
+  stroke(0, 255, 240, 70);
+  strokeWeight(1);
+  line(width / 2 - 130, height / 2 - 28, width / 2 + 130, height / 2 - 28);
+  noStroke();
+
+  // Tagline
+  textSize(13);
+  textStyle(NORMAL);
+  fill(130, 130, 145);
+  text("vision is a limited resource", width / 2, height / 2 + 2);
+
+  // Controls
+  textSize(12);
+  fill(100, 100, 112);
+  text("← →  move      ↑  jump      F  focus", width / 2, height / 2 + 36);
+
+  // Blinking prompt
+  if (sin(frameCount * 0.07) > 0) {
+    fill(0, 255, 240);
+    textSize(13);
+    text("PRESS ANY KEY TO BEGIN", width / 2, height / 2 + 80);
+  }
 
   drawVignette();
 }
 
-// ── Focus Mechanic ────────────────────────────────────────────────────────────
-function updateFocus() {
-  let fHeld = keyIsDown(70); // F key
+// ── Intro Sequence ────────────────────────────────────────────────────────────
+// Phase 1 (0 – INTRO_NORMAL_F):        full opacity world, no vignette, normal speed
+// Phase 2 (…+ INTRO_SHAKE_F):          screen shake, still full opacity
+// Phase 3 (…+ INTRO_FLASH_F):          low-vision world revealed under fading white flash
+function drawIntroScene() {
+  let shakeEnd = INTRO_NORMAL_F + INTRO_SHAKE_F;
+  let flashEnd = shakeEnd + INTRO_FLASH_F;
 
-  // Activate on press edge, only when off cooldown
-  if (fHeld && !prevFocusKey && focusCooldown === 0) {
-    focusActive = true;
+  let inShake = introTimer >= INTRO_NORMAL_F && introTimer < shakeEnd;
+  let inFlash = introTimer >= shakeEnd;
+
+  // Shake offset — magnitude decays linearly to 0 by end of shake window
+  let sx = 0, sy = 0;
+  if (inShake) {
+    let t   = (introTimer - INTRO_NORMAL_F) / INTRO_SHAKE_F;
+    let mag = lerp(11, 0, t);
+    sx = random(-mag, mag);
+    sy = random(-mag, mag);
   }
 
-  // Deactivate on release — immediately start fade and cooldown
-  if (!fHeld && focusActive) {
-    focusActive   = false;
-    focusCooldown = FOCUS_COOLDOWN_FRAMES;
-  }
+  // Background — switches to dark low-vision base once flash starts
+  background(inFlash ? color(18, 16, 22) : color(38, 44, 60));
 
-  // While active keep fade pinned at 1; otherwise decay toward 0
-  if (focusActive) {
-    focusFade = 1.0;
+  push();
+  translate(-camX + sx, sy);
+
+  if (inFlash) {
+    // Low-vision world already active; the flash overlay hides the transition
+    drawLights();
+    drawPlatforms();
   } else {
-    focusFade = max(0, focusFade - 1 / FOCUS_FADE_FRAMES);
+    // Clean full-opacity world
+    drawPlatformsFull();
+  }
+  drawPlayer();
+  pop();
+
+  // Vignette appears the moment the flash starts (part of the low-vision reveal)
+  if (inFlash) {
+    drawVignette();
   }
 
+  // White flash fades from 255 → 0 over INTRO_FLASH_F frames
+  if (inFlash) {
+    let alpha = map(introTimer, shakeEnd, flashEnd, 255, 0);
+    noStroke();
+    fill(255, 255, 255, constrain(alpha, 0, 255));
+    rect(0, 0, width, height);
+  }
+}
+
+// ── Focus Mechanic (play state only) ─────────────────────────────────────────
+function updateFocus() {
+  let fHeld = keyIsDown(70); // F
+
+  if (fHeld && !prevFocusKey && focusCooldown === 0) focusActive = true;
+  if (!fHeld && focusActive) { focusActive = false; focusCooldown = FOCUS_COOLDOWN_FRAMES; }
+
+  focusFade = focusActive ? 1.0 : max(0, focusFade - 1 / FOCUS_FADE_FRAMES);
   if (focusCooldown > 0) focusCooldown--;
 
   prevFocusKey = fHeld;
@@ -97,8 +195,8 @@ function updateFocus() {
 
 // ── Physics & Collision ───────────────────────────────────────────────────────
 function updatePlayer() {
-  // 30% speed while focus is engaged
-  let speed = focusActive ? MOVE_SPEED * 0.3 : MOVE_SPEED;
+  // Focus slows movement only during play state
+  let speed = (gameState === "play" && focusActive) ? MOVE_SPEED * 0.3 : MOVE_SPEED;
 
   player.vx = 0;
   if (keyIsDown(LEFT_ARROW))  player.vx = -speed;
@@ -109,7 +207,6 @@ function updatePlayer() {
 
   player.onGround = false;
 
-  // Horizontal move → resolve
   player.x += player.vx;
   for (let p of platforms) {
     if (overlaps(player, p)) {
@@ -119,7 +216,6 @@ function updatePlayer() {
   }
   player.x = constrain(player.x, 0, WORLD_W - player.w);
 
-  // Vertical move → resolve
   player.y += player.vy;
   for (let p of platforms) {
     if (overlaps(player, p)) {
@@ -135,6 +231,13 @@ function updatePlayer() {
 }
 
 function keyPressed() {
+  // Start screen — any key launches the intro
+  if (gameState === "start") {
+    gameState  = "intro";
+    introTimer = 0;
+    return;
+  }
+  // Jump works in both intro and play
   if (keyCode === UP_ARROW && player.onGround) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
@@ -153,7 +256,9 @@ function updateCamera() {
   camX = constrain(player.x - width / 3, 0, WORLD_W - width);
 }
 
-// ── Drawing ───────────────────────────────────────────────────────────────────
+// ── Drawing Helpers ───────────────────────────────────────────────────────────
+
+// Harsh glare columns (low-vision world only)
 function drawLights() {
   noStroke();
   for (let l of LIGHT_SOURCES) {
@@ -163,28 +268,29 @@ function drawLights() {
   }
 }
 
+// Full-opacity platforms — used during intro normal + shake phases
+function drawPlatformsFull() {
+  noStroke();
+  fill(80, 140, 60);
+  for (let p of platforms) {
+    rect(p.x, p.y, p.w, p.h);
+  }
+}
+
+// Low-opacity platforms with focus highlight — used after the flash and in play
 function drawPlatforms() {
   let pcx = player.x + player.w / 2;
   let pcy = player.y + player.h / 2;
 
   for (let p of platforms) {
-    // How much this platform is highlighted (0 = none, 1 = full)
     let hi = 0;
     if (focusFade > 0) {
-      let d = distToRect(pcx, pcy, p.x, p.y, p.w, p.h);
-      if (d <= FOCUS_RADIUS) hi = focusFade;
+      if (distToRect(pcx, pcy, p.x, p.y, p.w, p.h) <= FOCUS_RADIUS) hi = focusFade;
     }
 
-    // Fill: lerp from dim (~0.24 opacity) to fully opaque
     fill(80, 140, 60, lerp(62, 255, hi));
-
-    // Outline: faint cyan neon, fades with hi
-    if (hi > 0) {
-      stroke(0, 255, 240, hi * 160);
-      strokeWeight(1.5);
-    } else {
-      noStroke();
-    }
+    if (hi > 0) { stroke(0, 255, 240, hi * 160); strokeWeight(1.5); }
+    else        { noStroke(); }
 
     rect(p.x, p.y, p.w, p.h);
   }
@@ -197,17 +303,14 @@ function drawPlayer() {
   rect(player.x, player.y, player.w, player.h);
 }
 
-// Small circle below the player: grey when Focus is on cooldown, cyan when ready.
+// Focus state indicator below the player
 function drawFocusIndicator() {
-  let cx = player.x + player.w / 2;
-  let cy = player.y + player.h + 10;
-
   noStroke();
   fill(focusCooldown > 0 ? color(85, 85, 95) : color(0, 255, 240));
-  ellipse(cx, cy, 8, 8);
+  ellipse(player.x + player.w / 2, player.y + player.h + 10, 8, 8);
 }
 
-// Permanent dark radial vignette (screen-space, drawn after world)
+// Permanent radial vignette (screen-space)
 function drawVignette() {
   let ctx = drawingContext;
   let cx = width / 2, cy = height / 2;
@@ -219,7 +322,7 @@ function drawVignette() {
   ctx.fillRect(0, 0, width, height);
 }
 
-// Shortest distance from point (px,py) to axis-aligned rect
+// Shortest distance from point to axis-aligned rect
 function distToRect(px, py, rx, ry, rw, rh) {
   let dx = max(rx - px, 0, px - (rx + rw));
   let dy = max(ry - py, 0, py - (ry + rh));
