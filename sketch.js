@@ -5,13 +5,21 @@ const JUMP_FORCE = -12;
 const TERM_VEL   = 16;
 const WORLD_W    = 2350;
 
+const FOCUS_RADIUS          = 200;
+const FOCUS_FADE_FRAMES     = 90;   // 1.5 s at 60 fps
+const FOCUS_COOLDOWN_FRAMES = 210;  // 3.5 s at 60 fps
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let player;
 let platforms;
 let camX = 0;
 
-// Three background light sources positioned across the world.
-// Each pulses independently via a sine wave on `phase` + `speed`.
+// Focus mechanic
+let focusActive   = false; // F is held and focus is engaged
+let focusFade     = 0;     // 0..1 — drives highlight alpha; decays to 0 after release
+let focusCooldown = 0;     // frames until Focus is usable again
+let prevFocusKey  = false; // F-key state last frame, for press-edge detection
+
 const LIGHT_SOURCES = [
   { x: 200,  y: 0, w: 300, h: 450, phase: 0.0,  speed: 0.038 },
   { x: 850,  y: 0, w: 240, h: 450, phase: 2.1,  speed: 0.055 },
@@ -43,29 +51,58 @@ function setup() {
 
 // ── Main Loop ─────────────────────────────────────────────────────────────────
 function draw() {
-  // Near-black base — not sky blue, not a tinted screen
   background(18, 16, 22);
 
+  updateFocus();
   updatePlayer();
   updateCamera();
 
-  // World-space layer (scrolls with camera)
   push();
   translate(-camX, 0);
-  drawLights();      // harsh glare columns behind everything
-  drawPlatforms();   // faint, low-opacity surfaces
+  drawLights();
+  drawPlatforms();
   drawPlayer();
+  drawFocusIndicator();
   pop();
 
-  // Screen-space layer (fixed to canvas, drawn last)
   drawVignette();
+}
+
+// ── Focus Mechanic ────────────────────────────────────────────────────────────
+function updateFocus() {
+  let fHeld = keyIsDown(70); // F key
+
+  // Activate on press edge, only when off cooldown
+  if (fHeld && !prevFocusKey && focusCooldown === 0) {
+    focusActive = true;
+  }
+
+  // Deactivate on release — immediately start fade and cooldown
+  if (!fHeld && focusActive) {
+    focusActive   = false;
+    focusCooldown = FOCUS_COOLDOWN_FRAMES;
+  }
+
+  // While active keep fade pinned at 1; otherwise decay toward 0
+  if (focusActive) {
+    focusFade = 1.0;
+  } else {
+    focusFade = max(0, focusFade - 1 / FOCUS_FADE_FRAMES);
+  }
+
+  if (focusCooldown > 0) focusCooldown--;
+
+  prevFocusKey = fHeld;
 }
 
 // ── Physics & Collision ───────────────────────────────────────────────────────
 function updatePlayer() {
+  // 30% speed while focus is engaged
+  let speed = focusActive ? MOVE_SPEED * 0.3 : MOVE_SPEED;
+
   player.vx = 0;
-  if (keyIsDown(LEFT_ARROW))  player.vx = -MOVE_SPEED;
-  if (keyIsDown(RIGHT_ARROW)) player.vx =  MOVE_SPEED;
+  if (keyIsDown(LEFT_ARROW))  player.vx = -speed;
+  if (keyIsDown(RIGHT_ARROW)) player.vx =  speed;
 
   player.vy += GRAVITY;
   if (player.vy > TERM_VEL) player.vy = TERM_VEL;
@@ -116,50 +153,75 @@ function updateCamera() {
   camX = constrain(player.x - width / 3, 0, WORLD_W - width);
 }
 
-// ── Visual Effects ────────────────────────────────────────────────────────────
-
-// Harsh background light columns — each pulses at its own rate and phase.
-// They sit behind the platforms, creating competing glare that washes out
-// the already-faint platform shapes.
+// ── Drawing ───────────────────────────────────────────────────────────────────
 function drawLights() {
   noStroke();
   for (let l of LIGHT_SOURCES) {
-    // alpha oscillates between ~28 and ~100 (11%–39% opacity)
     let a = map(sin(frameCount * l.speed + l.phase), -1, 1, 28, 100);
-    fill(255, 248, 210, a);  // warm white-yellow
+    fill(255, 248, 210, a);
     rect(l.x, l.y, l.w, l.h);
   }
 }
 
-// Platforms rendered at ~0.24 opacity — barely visible against the dark ground.
 function drawPlatforms() {
-  noStroke();
-  fill(80, 140, 60, 62);   // 62/255 ≈ 0.24
+  let pcx = player.x + player.w / 2;
+  let pcy = player.y + player.h / 2;
+
   for (let p of platforms) {
+    // How much this platform is highlighted (0 = none, 1 = full)
+    let hi = 0;
+    if (focusFade > 0) {
+      let d = distToRect(pcx, pcy, p.x, p.y, p.w, p.h);
+      if (d <= FOCUS_RADIUS) hi = focusFade;
+    }
+
+    // Fill: lerp from dim (~0.24 opacity) to fully opaque
+    fill(80, 140, 60, lerp(62, 255, hi));
+
+    // Outline: faint cyan neon, fades with hi
+    if (hi > 0) {
+      stroke(0, 255, 240, hi * 160);
+      strokeWeight(1.5);
+    } else {
+      noStroke();
+    }
+
     rect(p.x, p.y, p.w, p.h);
   }
+  noStroke();
 }
 
-// Player stays fully opaque — it's the world that's hard to read, not the character.
 function drawPlayer() {
   noStroke();
   fill(220, 80, 80);
   rect(player.x, player.y, player.w, player.h);
 }
 
-// Permanent dark radial vignette drawn in screen space using a canvas gradient.
-// Inner radius is kept small so the darkness encroaches well into the play area.
+// Small circle below the player: grey when Focus is on cooldown, cyan when ready.
+function drawFocusIndicator() {
+  let cx = player.x + player.w / 2;
+  let cy = player.y + player.h + 10;
+
+  noStroke();
+  fill(focusCooldown > 0 ? color(85, 85, 95) : color(0, 255, 240));
+  ellipse(cx, cy, 8, 8);
+}
+
+// Permanent dark radial vignette (screen-space, drawn after world)
 function drawVignette() {
   let ctx = drawingContext;
-  let cx = width  / 2;
-  let cy = height / 2;
-
-  // Two-stop radial gradient: transparent center → opaque dark edge
-  let grad = ctx.createRadialGradient(cx, cy, height * 0.1, cx, cy, height * 0.82);
-  grad.addColorStop(0,   'rgba(0, 0, 0, 0)');
-  grad.addColorStop(0.6, 'rgba(0, 0, 0, 0.45)');
-  grad.addColorStop(1,   'rgba(0, 0, 0, 0.9)');
-
-  ctx.fillStyle = grad;
+  let cx = width / 2, cy = height / 2;
+  let g = ctx.createRadialGradient(cx, cy, height * 0.1, cx, cy, height * 0.82);
+  g.addColorStop(0,   'rgba(0,0,0,0)');
+  g.addColorStop(0.6, 'rgba(0,0,0,0.45)');
+  g.addColorStop(1,   'rgba(0,0,0,0.9)');
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, width, height);
+}
+
+// Shortest distance from point (px,py) to axis-aligned rect
+function distToRect(px, py, rx, ry, rw, rh) {
+  let dx = max(rx - px, 0, px - (rx + rw));
+  let dy = max(ry - py, 0, py - (ry + rh));
+  return sqrt(dx * dx + dy * dy);
 }
