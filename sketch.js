@@ -19,13 +19,19 @@ let player;
 let platforms;
 let camX = 0;
 
-let gameState  = "start"; // "start" | "intro" | "play"
+let gameState  = "start"; // "start" | "intro" | "play" | "win"
 let introTimer = 0;
 
 let focusActive   = false;
 let focusFade     = 0;
 let focusCooldown = 0;
 let prevFocusKey  = false;
+
+// Enemy — patrols platform [4] (the highest point)
+let enemy;
+
+// Goal — data vault sitting on the far end of the right ground section
+let goal;
 
 const LIGHT_SOURCES = [
   { x: 200,  y: 0, w: 300, h: 450, phase: 0.0,  speed: 0.038 },
@@ -54,12 +60,32 @@ function setup() {
     { x: 1400, y: 350, w: 180, h: 20 },  // [5] descent step
     { x: 1550, y: 400, w: 800, h: 50 },  // [6] ground – right
   ];
+
+  // Enemy sits on platform [4] (x:1150, y:230, w:200).
+  // Bounds keep it a few pixels inside the platform edges.
+  enemy = {
+    x: 1155, y: 200,   // y = platform top (230) − enemy height (30)
+    w: 22,   h: 30,
+    speed: 1.1,
+    dir: 1,            // 1 = right, −1 = left
+    leftBound:  1155,
+    rightBound: 1150 + 200 - 22 - 5,  // 1323
+  };
+
+  // Goal sits on right ground section (platform [6]: x:1550, y:400, w:800).
+  // Placed near the far end of the level.
+  goal = { x: 2250, y: 368, w: 30, h: 32 };
 }
 
 // ── Main Loop ─────────────────────────────────────────────────────────────────
 function draw() {
   if (gameState === "start") {
     drawStartScreen();
+    return;
+  }
+
+  if (gameState === "win") {
+    drawWinScreen();
     return;
   }
 
@@ -78,11 +104,16 @@ function draw() {
 
   // ── "play" — permanent low vision, no way back ──
   updateFocus();
+  updateEnemy();
+  checkEnemyCollision();
+  if (overlaps(player, goal)) { gameState = "win"; return; }
   background(18, 16, 22);
   push();
   translate(-camX, 0);
   drawLights();
   drawPlatforms();
+  drawGoal();
+  drawEnemy();
   drawPlayer();
   drawFocusIndicator();
   pop();
@@ -152,6 +183,8 @@ function drawIntroScene() {
   // Background — switches to dark low-vision base once flash starts
   background(inFlash ? color(18, 16, 22) : color(38, 44, 60));
 
+  updateEnemy();
+
   push();
   translate(-camX + sx, sy);
 
@@ -159,9 +192,13 @@ function drawIntroScene() {
     // Low-vision world already active; the flash overlay hides the transition
     drawLights();
     drawPlatforms();
+    drawGoal();
+    drawEnemy();
   } else {
     // Clean full-opacity world
     drawPlatformsFull();
+    drawGoalFull();
+    drawEnemyFull();
   }
   drawPlayer();
   pop();
@@ -308,6 +345,163 @@ function drawFocusIndicator() {
   noStroke();
   fill(focusCooldown > 0 ? color(85, 85, 95) : color(0, 255, 240));
   ellipse(player.x + player.w / 2, player.y + player.h + 10, 8, 8);
+}
+
+// ── Enemy ─────────────────────────────────────────────────────────────────────
+
+// Advance patrol position; reverse at bounds.
+function updateEnemy() {
+  enemy.x += enemy.speed * enemy.dir;
+  if (enemy.x >= enemy.rightBound) { enemy.x = enemy.rightBound; enemy.dir = -1; }
+  if (enemy.x <= enemy.leftBound)  { enemy.x = enemy.leftBound;  enemy.dir =  1; }
+}
+
+// AABB touch → snap player back to spawn.
+function checkEnemyCollision() {
+  if (overlaps(player, enemy)) {
+    player.x = 60; player.y = 360;
+    player.vx = 0; player.vy = 0;
+  }
+}
+
+// Intro full-vision phase — amber at full opacity, no outline
+function drawEnemyFull() {
+  noStroke();
+  fill(185, 100, 30);
+  rect(enemy.x, enemy.y, enemy.w, enemy.h);
+}
+
+// Low-vision phase — same dim opacity as platforms, highlights with Focus
+function drawEnemy() {
+  let pcx = player.x + player.w / 2;
+  let pcy = player.y + player.h / 2;
+  let hi  = 0;
+  if (focusFade > 0) {
+    if (distToRect(pcx, pcy, enemy.x, enemy.y, enemy.w, enemy.h) <= FOCUS_RADIUS) {
+      hi = focusFade;
+    }
+  }
+
+  fill(185, 100, 30, lerp(62, 255, hi));
+  if (hi > 0) { stroke(0, 255, 240, hi * 160); strokeWeight(1.5); }
+  else        { noStroke(); }
+  rect(enemy.x, enemy.y, enemy.w, enemy.h);
+  noStroke();
+}
+
+// ── Goal ──────────────────────────────────────────────────────────────────────
+
+// Low-vision version — same opacity system as platforms and enemy
+function drawGoal() {
+  let pcx = player.x + player.w / 2;
+  let pcy = player.y + player.h / 2;
+  let hi  = 0;
+  if (focusFade > 0) {
+    if (distToRect(pcx, pcy, goal.x, goal.y, goal.w, goal.h) <= FOCUS_RADIUS) hi = focusFade;
+  }
+
+  let a = lerp(62, 255, hi);
+
+  // Body
+  fill(0, 195, 175, a);
+  if (hi > 0) { stroke(0, 255, 240, hi * 220); strokeWeight(2); }
+  else        { noStroke(); }
+  rect(goal.x, goal.y, goal.w, goal.h);
+
+  // Inner vault panel
+  noStroke();
+  fill(0, 110, 100, lerp(30, 190, hi));
+  rect(goal.x + 5, goal.y + 5, goal.w - 10, goal.h - 13);
+
+  // Access indicator dot
+  fill(0, 255, 220, lerp(55, 255, hi));
+  ellipse(goal.x + goal.w / 2, goal.y + goal.h - 6, 5, 5);
+}
+
+// Full-opacity version used during intro clear phase
+function drawGoalFull() {
+  noStroke();
+  fill(0, 195, 175);
+  rect(goal.x, goal.y, goal.w, goal.h);
+  fill(0, 110, 100);
+  rect(goal.x + 5, goal.y + 5, goal.w - 10, goal.h - 13);
+  fill(0, 255, 220);
+  ellipse(goal.x + goal.w / 2, goal.y + goal.h - 6, 5, 5);
+}
+
+// ── Win Screen ────────────────────────────────────────────────────────────────
+
+// Button bounds — defined once, shared between draw and click detection
+const WIN_BTN = { x: 310, y: 285, w: 180, h: 42 };
+
+function drawWinScreen() {
+  background(18, 16, 22);
+  textAlign(CENTER, CENTER);
+
+  // Primary heading
+  noStroke();
+  fill(0, 255, 240);
+  textSize(56);
+  textStyle(BOLD);
+  text("DATA SECURED", width / 2, height / 2 - 88);
+
+  // Cyan rule
+  stroke(0, 255, 240, 55);
+  strokeWeight(1);
+  line(width / 2 - 210, height / 2 - 44, width / 2 + 210, height / 2 - 44);
+  noStroke();
+
+  // Secondary line
+  fill(180, 60, 255);
+  textSize(17);
+  textStyle(NORMAL);
+  text("OBJECTIVE COMPLETE", width / 2, height / 2 - 18);
+
+  // Flavour lines
+  fill(70, 70, 85);
+  textSize(11);
+  text("ACCESS NODE REACHED  //  NEURAL LINK ESTABLISHED", width / 2, height / 2 + 16);
+
+  // Restart button — neon cyan border, label inside
+  stroke(0, 255, 240, 200);
+  strokeWeight(1);
+  noFill();
+  rect(WIN_BTN.x, WIN_BTN.y, WIN_BTN.w, WIN_BTN.h);
+
+  noStroke();
+  fill(0, 255, 240);
+  textSize(13);
+  textStyle(BOLD);
+  text("RESTART", width / 2, WIN_BTN.y + WIN_BTN.h / 2);
+
+  drawVignette();
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+function resetGame() {
+  player.x = 60; player.y = 360;
+  player.vx = 0; player.vy = 0;
+  player.onGround = false;
+
+  enemy.x   = 1155; enemy.y = 200; enemy.dir = 1;
+
+  camX          = 0;
+  focusActive   = false;
+  focusFade     = 0;
+  focusCooldown = 0;
+  prevFocusKey  = false;
+
+  gameState  = "start";
+  introTimer = 0;
+}
+
+function mousePressed() {
+  if (gameState === "win") {
+    if (mouseX >= WIN_BTN.x && mouseX <= WIN_BTN.x + WIN_BTN.w &&
+        mouseY >= WIN_BTN.y && mouseY <= WIN_BTN.y + WIN_BTN.h) {
+      resetGame();
+    }
+  }
 }
 
 // Permanent radial vignette (screen-space)
