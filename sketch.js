@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 //  DATA BREACH — cyberpunk platformer about limited vision
-//  p5.js · 800 × 450 · pixel art city skyline
+//  p5.js · 800 × 450 · procedurally generated levels
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -11,18 +11,23 @@ const TERM_VEL   = 16;
 const WORLD_W    = 4800;
 
 const FOCUS_RADIUS          = 200;
-const FOCUS_FADE_FRAMES     = 90;   // 1.5 s fade after release
-const FOCUS_COOLDOWN_FRAMES = 210;  // 3.5 s cooldown
+const FOCUS_FADE_FRAMES     = 90;
+const FOCUS_COOLDOWN_FRAMES = 210;
 
-const INTRO_NORMAL_F = 60;  // 1.0 s full vision (faster intro)
-const INTRO_SHAKE_F  = 30;  // 0.5 s screen shake
-const INTRO_FLASH_F  = 24;  // 0.4 s white flash
+const INTRO_NORMAL_F = 60;
+const INTRO_SHAKE_F  = 30;
+const INTRO_FLASH_F  = 24;
 
 const RAIN_COUNT = 50;
 const MOTE_COUNT = 15;
 
-const COYOTE_FRAMES = 7;       // grace frames after leaving edge
-const JUMP_CUT_MULT = 0.42;    // velocity multiplier on early jump release
+const COYOTE_FRAMES = 7;
+const JUMP_CUT_MULT = 0.42;
+
+// Physics-derived jump envelope (used by generator)
+const MAX_JUMP_H   = 110;  // max height gain in pixels
+const MAX_JUMP_W   = 145;  // max horizontal distance in air
+const SAFE_GAP     = 130;  // comfortable gap (leaves margin)
 
 const LIGHT_SOURCES = [
   { x: 200,  y: 0, w: 300, h: 450, phase: 0.0,  speed: 0.038 },
@@ -44,22 +49,48 @@ const DEATH_SHAKE_FRAMES = 18;
 const DEATH_FLASH_FRAMES = 14;
 const FOCUS_FLASH_FRAMES = 10;
 
-const AFTERIMAGE_COUNT = 4;
-const AFTERIMAGE_SPACING = 3;  // frames between each ghost
+const AFTERIMAGE_COUNT   = 4;
+const AFTERIMAGE_SPACING = 3;
+
+const JAMIE_ANIM_SPEED = 8;  // frames per idle animation frame
+const JAMIE_DRAW_W     = 48; // display width for sprite
+const JAMIE_DRAW_H     = 48; // display height for sprite
+
+// Dash mechanic
+const DASH_SPEED       = 14;
+const DASH_FRAMES      = 8;
+const DASH_COOLDOWN    = 45;
+
+// Traps
+const SPIKE_W = 16;
+const SPIKE_H = 14;
+const LASER_CYCLE = 180;  // frames for one on/off cycle
+const LASER_ON_FRAC = 0.6; // fraction of cycle the laser is active
 
 // ── ASSET LOADING ────────────────────────────────────────────────────────────
-let buildingImgs = [];    // 7 single building sprites
+let buildingImgs = [];
+let jamieIdle    = [];  // 3-frame idle animation
 
 function preload() {
   for (let i = 2; i <= 8; i++) {
     let pad = i < 10 ? "0" + i : "" + i;
     buildingImgs.push(loadImage("assets/Single Buildings/Pixel Art Buildings-" + pad + ".png"));
   }
+  for (let i = 1; i <= 3; i++) {
+    jamieIdle.push(loadImage("assets/JAMIE/IDLE/Jamie_IDLE_" + i + ".png"));
+  }
 }
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 let player, platforms, movingPlatforms, enemies, goal;
+let spikes = [];
+let lasers = [];
 let camX = 0;
+let playerFacing = 1;  // 1 = right, -1 = left
+
+let dashTimer    = 0;
+let dashCooldown = 0;
+let dashDir      = 1;
 
 let gameState  = "start";
 let introTimer = 0;
@@ -77,89 +108,203 @@ let deathCount      = 0;
 let deathShakeTimer = 0;
 let deathFlashTimer = 0;
 
-let coyoteTimer     = 0;   // frames since last grounded
-let wasOnGround     = false;
-let jumpHeld        = false;
+let coyoteTimer = 0;
+let wasOnGround = false;
+let jumpHeld    = false;
 
-// Player afterimage trail
-let afterimages = [];  // ring buffer of {x, y, age}
+let afterimages = [];
 
-let bgLayer1 = [];    // far buildings (image-based)
-let bgLayer2 = [];    // mid buildings (image-based)
+let bgLayer1 = [];
+let bgLayer2 = [];
 let rain     = [];
 let motes    = [];
 
-// ── SETUP ─────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PROCEDURAL LEVEL GENERATOR
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Zone configs: [minPlatW, maxPlatW, minGap, maxGap, minY, maxY, enemyChance, movingChance, enemySpeedMin, enemySpeedMax]
+const ZONE_CONFIGS = [
+  // Zone 1: Tutorial (0–1200) — wide, easy, no enemies, no traps
+  { minW: 140, maxW: 350, minGap: 50,  maxGap: 90,  minY: 340, maxY: 400,
+    enemyChance: 0, movingChance: 0, eSpeedMin: 0, eSpeedMax: 0, enemyPlatW: 0,
+    spikeChance: 0, laserChance: 0 },
+  // Zone 2: Medium — spikes appear, occasional lasers
+  { minW: 90,  maxW: 170, minGap: 70,  maxGap: 130, minY: 240, maxY: 380,
+    enemyChance: 0.25, movingChance: 0.15, eSpeedMin: 0.8, eSpeedMax: 1.3, enemyPlatW: 180,
+    spikeChance: 0.2, laserChance: 0.1 },
+  // Zone 3: Hard — more traps
+  { minW: 70,  maxW: 120, minGap: 80,  maxGap: 150, minY: 220, maxY: 380,
+    enemyChance: 0.35, movingChance: 0.25, eSpeedMin: 1.2, eSpeedMax: 1.8, enemyPlatW: 155,
+    spikeChance: 0.3, laserChance: 0.15 },
+  // Zone 4: Brutal — traps everywhere
+  { minW: 55,  maxW: 95,  minGap: 100, maxGap: 170, minY: 180, maxY: 370,
+    enemyChance: 0.40, movingChance: 0.3, eSpeedMin: 1.5, eSpeedMax: 2.2, enemyPlatW: 135,
+    spikeChance: 0.35, laserChance: 0.2 },
+];
+
+const ZONE_BOUNDARIES = [0, 1200, 2400, 3600, WORLD_W];
+
+function generateLevel() {
+  platforms       = [];
+  movingPlatforms = [];
+  enemies         = [];
+  spikes          = [];
+  lasers          = [];
+
+  // ── Always start with a safe wide ground platform ──
+  let startPlat = { x: 0, y: 400, w: 350, h: 50 };
+  platforms.push(startPlat);
+
+  let curX = startPlat.x + startPlat.w;
+  let curY = startPlat.y;
+  let lastEnemyX   = -500;  // track spacing between enemies (min 400px apart)
+  let lastMovingX  = -500;  // min 300px between moving platforms
+
+  while (curX < WORLD_W - 300) {
+    // Determine which zone we're in
+    let zoneIdx = 0;
+    for (let z = ZONE_BOUNDARIES.length - 2; z >= 0; z--) {
+      if (curX >= ZONE_BOUNDARIES[z]) { zoneIdx = z; break; }
+    }
+    let cfg = ZONE_CONFIGS[min(zoneIdx, ZONE_CONFIGS.length - 1)];
+
+    // ── Decide: static platform or moving platform? ──
+    let useMoving = random() < cfg.movingChance && (curX - lastMovingX) > 300;
+
+    if (useMoving) {
+      // Place a moving platform to bridge a gap
+      let gap = random(cfg.minGap + 20, cfg.maxGap + 40); // moving plats bridge wider gaps
+      gap = min(gap, SAFE_GAP + 20); // but not impossibly wide
+
+      let mpX = curX + gap * 0.3;  // start position within the gap area
+      let mpY = constrain(curY + random(-40, 30), cfg.minY, cfg.maxY);
+      let mpW = random(65, 90);
+
+      // Ensure reachable: height change from curY
+      let dy = curY - mpY;  // positive = platform is higher
+      if (dy > MAX_JUMP_H - 20) mpY = curY - MAX_JUMP_H + 25;
+      mpY = constrain(mpY, cfg.minY, cfg.maxY);
+
+      let axis  = random() < 0.5 ? "x" : "y";
+      let range = axis === "x" ? random(60, 110) : random(50, 80);
+      let speed = random(0.6, 1.0 + zoneIdx * 0.3);
+
+      movingPlatforms.push({
+        x: mpX, y: mpY, w: mpW, h: 20,
+        axis: axis, speed: speed, range: range,
+        origin: axis === "x" ? mpX : mpY,
+      });
+
+      curX = mpX + mpW + random(cfg.minGap * 0.5, cfg.minGap);
+      curY = mpY;
+      lastMovingX = mpX;
+
+    } else {
+      // ── Static platform ──
+      let gap = random(cfg.minGap, cfg.maxGap);
+      let platW = random(cfg.minW, cfg.maxW);
+
+      // Decide if this platform gets an enemy BEFORE finalising width
+      let wantsEnemy = cfg.enemyChance > 0 &&
+                       (curX + gap - lastEnemyX) > 400 &&
+                       random() < cfg.enemyChance;
+
+      // If an enemy will spawn, boost the platform width so there's room
+      if (wantsEnemy && cfg.enemyPlatW > 0) {
+        platW = max(platW, cfg.enemyPlatW + random(-15, 20));
+      }
+
+      // Y position: random within zone range, but must be reachable from current
+      let newY = curY + random(-60, 50);
+      newY = constrain(newY, cfg.minY, cfg.maxY);
+
+      // Enforce jump reachability
+      let dy = curY - newY; // positive = new plat is higher
+      if (dy > MAX_JUMP_H - 20) newY = curY - MAX_JUMP_H + 25;
+
+      // Enforce horizontal reachability
+      if (gap > SAFE_GAP && dy > 0) {
+        gap = SAFE_GAP - 10;
+      }
+
+      let platX = curX + gap;
+      newY = constrain(newY, cfg.minY, cfg.maxY);
+
+      // Avoid platforms going off-world
+      if (platX + platW > WORLD_W - 200) break;
+
+      platforms.push({ x: platX, y: newY, w: platW, h: 20 });
+
+      // ── Place enemy: patrol edge-to-edge of the platform ──
+      if (wantsEnemy) {
+        let eW = 22, eH = 30;
+        // Edge-to-edge patrol: enemy walks from platform left edge to right edge
+        let leftBound  = platX;
+        let rightBound = platX + platW - eW;
+
+        if (rightBound - leftBound >= 30) {
+          let eSpeed = random(cfg.eSpeedMin, cfg.eSpeedMax);
+          enemies.push({
+            x: leftBound, y: newY - eH, w: eW, h: eH,
+            speed: eSpeed, dir: 1,
+            leftBound: leftBound, rightBound: rightBound,
+            startX: leftBound, startDir: 1,
+          });
+          lastEnemyX = platX;
+        }
+      }
+
+      // ── Place spikes on platform (only if no enemy) ──
+      if (!wantsEnemy && cfg.spikeChance > 0 && random() < cfg.spikeChance && platW >= 50) {
+        let spikeCount = floor(random(1, min(4, platW / SPIKE_W)));
+        let spikeStartX = platX + random(8, max(10, platW - spikeCount * SPIKE_W - 8));
+        for (let s = 0; s < spikeCount; s++) {
+          let sx = spikeStartX + s * SPIKE_W;
+          if (sx + SPIKE_W <= platX + platW) {
+            spikes.push({ x: sx, y: newY - SPIKE_H, w: SPIKE_W, h: SPIKE_H });
+          }
+        }
+      }
+
+      // ── Place laser between this platform and the next gap ──
+      if (cfg.laserChance > 0 && random() < cfg.laserChance) {
+        let laserY = newY - random(40, 80);
+        laserY = constrain(laserY, 60, 380);
+        lasers.push({
+          x: platX - 10, y: laserY, w: platW + 20, h: 4,
+          phase: random(LASER_CYCLE),
+        });
+      }
+
+      curX = platX + platW;
+      curY = newY;
+    }
+  }
+
+  // ── Final platform (always wide + safe) with portal ──
+  let finalX = max(curX + 80, WORLD_W - 350);
+  let finalY = constrain(curY + random(-20, 40), 350, 400);
+  // Ensure reachable from last position
+  if (curY - finalY > MAX_JUMP_H - 20) finalY = curY - MAX_JUMP_H + 25;
+  finalY = constrain(finalY, 350, 400);
+
+  platforms.push({ x: finalX, y: finalY, w: 250, h: 50 });
+
+  // Portal on the far end of final platform
+  goal = { x: finalX + 200, y: finalY - 52, w: 36, h: 52 };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SETUP
+// ═══════════════════════════════════════════════════════════════════════════════
+
 function setup() {
   createCanvas(800, 450);
 
   player = { x: 60, y: 360, w: 30, h: 40, vx: 0, vy: 0, onGround: false };
 
-  platforms = [
-    // === ZONE 1: Tutorial (x 0–800) ===
-    { x: 0,    y: 400, w: 350, h: 50 },
-    { x: 410,  y: 360, w: 160, h: 20 },
-    { x: 630,  y: 320, w: 140, h: 20 },
-
-    // === ZONE 2: Medium (x 800–1800) ===
-    { x: 840,  y: 350, w: 120, h: 20 },
-    { x: 1020, y: 290, w: 100, h: 20 },
-    { x: 1180, y: 230, w: 180, h: 20 },
-    { x: 1420, y: 310, w: 90,  h: 20 },
-    { x: 1560, y: 370, w: 130, h: 20 },
-    { x: 1730, y: 310, w: 100, h: 20 },
-
-    // === ZONE 3: Hard (x 1800–3200) ===
-    { x: 1900, y: 380, w: 110, h: 20 },
-    { x: 2100, y: 320, w: 80,  h: 20 },
-    { x: 2300, y: 260, w: 90,  h: 20 },
-    { x: 2520, y: 330, w: 70,  h: 20 },
-    { x: 2680, y: 280, w: 85,  h: 20 },
-    { x: 2860, y: 350, w: 100, h: 20 },
-    { x: 3040, y: 290, w: 80,  h: 20 },
-
-    // === ZONE 4: Brutal (x 3200–4800) ===
-    { x: 3220, y: 350, w: 90,  h: 20 },
-    { x: 3400, y: 280, w: 65,  h: 20 },
-    { x: 3560, y: 220, w: 75,  h: 20 },
-    { x: 3730, y: 300, w: 60,  h: 20 },
-    { x: 3880, y: 240, w: 70,  h: 20 },
-    { x: 4050, y: 320, w: 80,  h: 20 },
-    { x: 4220, y: 260, w: 65,  h: 20 },
-    { x: 4380, y: 350, w: 120, h: 20 },
-    { x: 4550, y: 380, w: 250, h: 50 },
-  ];
-
-  movingPlatforms = [
-    { x: 1560, y: 250, w: 90, h: 20,
-      axis: "x", speed: 0.8, range: 100, origin: 1560 },
-    { x: 2420, y: 340, w: 80, h: 20,
-      axis: "y", speed: 0.7, range: 80, origin: 340 },
-    { x: 2950, y: 240, w: 75, h: 20,
-      axis: "x", speed: 1.1, range: 120, origin: 2950 },
-    { x: 3960, y: 180, w: 65, h: 20,
-      axis: "y", speed: 1.4, range: 100, origin: 180 },
-    { x: 4300, y: 200, w: 70, h: 20,
-      axis: "x", speed: 1.6, range: 130, origin: 4300 },
-  ];
-
-  enemies = [
-    { x: 1185, y: 200, w: 22, h: 30,
-      speed: 1.1, dir: 1,
-      leftBound: 1180, rightBound: 1338 },
-    { x: 2680, y: 250, w: 22, h: 30,
-      speed: 1.6, dir: -1,
-      leftBound: 2680, rightBound: 2743 },
-    { x: 2860, y: 320, w: 22, h: 30,
-      speed: 0.8, dir: 1,
-      leftBound: 2860, rightBound: 2938 },
-    { x: 4050, y: 290, w: 22, h: 30,
-      speed: 2.0, dir: 1,
-      leftBound: 4050, rightBound: 4108 },
-  ];
-
-  goal = { x: 4698, y: 328, w: 36, h: 52 };
-
+  generateLevel();
   initParallax();
   initParticles();
 }
@@ -169,29 +314,27 @@ function initParallax() {
   bgLayer1 = [];
   bgLayer2 = [];
 
-  // Layer 1 — far, sparse, uses darker/simpler buildings (indices 3,4,6 → imgs 05,06,08)
   let farIndices = [3, 4, 6];
   let x1 = -300;
   while (x1 < WORLD_W + 600) {
     let idx = farIndices[floor(random(farIndices.length))];
     let img = buildingImgs[idx];
-    let scale = random(0.08, 0.14);
-    let w = img.width * scale;
-    let h = img.height * scale;
-    bgLayer1.push({ x: x1, w: w, h: h, imgIdx: idx, scale: scale });
-    x1 += w + random(30, 90);
+    let sc = random(0.22, 0.38);
+    let w = img.width * sc;
+    let h = img.height * sc;
+    bgLayer1.push({ x: x1, w: w, h: h, imgIdx: idx });
+    x1 += w + random(20, 70);
   }
 
-  // Layer 2 — mid, denser, all buildings, bigger scale
   let x2 = -300;
   while (x2 < WORLD_W + 600) {
     let idx = floor(random(buildingImgs.length));
     let img = buildingImgs[idx];
-    let scale = random(0.12, 0.22);
-    let w = img.width * scale;
-    let h = img.height * scale;
-    bgLayer2.push({ x: x2, w: w, h: h, imgIdx: idx, scale: scale });
-    x2 += w + random(5, 40);
+    let sc = random(0.32, 0.55);
+    let w = img.width * sc;
+    let h = img.height * sc;
+    bgLayer2.push({ x: x2, w: w, h: h, imgIdx: idx });
+    x2 += w + random(-10, 25);
   }
 }
 
@@ -223,7 +366,6 @@ function draw() {
   if (gameState === "start") { drawStartScreen(); return; }
   if (gameState === "win")   { drawWinScreen();   return; }
 
-  // ── WINNING — portal-suck transition ──
   if (gameState === "winning") {
     winTimer++;
     background(12, 8, 20);
@@ -268,7 +410,9 @@ function draw() {
   // ── PLAY ──
   updateFocus();
   updateEnemies();
+  updateDash();
   checkEnemyCollision();
+  checkTrapCollision();
   if (overlaps(player, goal)) { gameState = "winning"; winTimer = 0; return; }
 
   if (deathShakeTimer > 0) deathShakeTimer--;
@@ -292,6 +436,8 @@ function draw() {
   drawMovingPlatforms();
   drawGoal();
   drawEnemies();
+  drawSpikes();
+  drawLasers();
   drawAfterimages();
   drawPlayer();
   drawFocusPulse();
@@ -301,7 +447,6 @@ function draw() {
   updateParticles();
   drawParticles();
 
-  // Focus activation flash
   if (focusFlashTimer > 0) {
     focusFlashTimer--;
     let fa = map(focusFlashTimer, FOCUS_FLASH_FRAMES, 0, 60, 0);
@@ -310,7 +455,6 @@ function draw() {
     rect(0, 0, width, height);
   }
 
-  // Death red flash
   if (deathFlashTimer > 0) {
     let da = map(deathFlashTimer, DEATH_FLASH_FRAMES, 0, 100, 0);
     noStroke();
@@ -342,14 +486,12 @@ function drawStartScreen() {
   textAlign(CENTER, CENTER);
   noStroke();
 
-  // Title with subtle breathing glow
   let titleGlow = 220 + 35 * sin(frameCount * 0.04);
   fill(0, titleGlow, constrain(titleGlow - 10, 0, 255));
   textSize(60);
   textStyle(BOLD);
   text("DATA BREACH", width / 2, height / 2 - 72);
 
-  // Hot pink rule
   stroke(255, 50, 150, 90);
   strokeWeight(1);
   line(width / 2 - 160, height / 2 - 30, width / 2 + 160, height / 2 - 30);
@@ -362,7 +504,7 @@ function drawStartScreen() {
 
   fill(55, 50, 75);
   textSize(11);
-  text("ARROWS  MOVE + JUMP      F  FOCUS", width / 2, height / 2 + 30);
+  text("WASD / ARROWS  MOVE + JUMP      F  FOCUS      SHIFT  DASH", width / 2, height / 2 + 30);
 
   if (sin(frameCount * 0.07) > 0) {
     fill(0, 255, 240);
@@ -374,7 +516,6 @@ function drawStartScreen() {
   drawVignette();
 }
 
-// ── Intro Sequence ────────────────────────────────────────────────────────────
 function drawIntroScene() {
   let shakeEnd = INTRO_NORMAL_F + INTRO_SHAKE_F;
   let flashEnd = shakeEnd + INTRO_FLASH_F;
@@ -424,7 +565,6 @@ function drawIntroScene() {
   }
 }
 
-// ── Win Screen ────────────────────────────────────────────────────────────────
 function drawWinScreen() {
   background(12, 8, 20);
   updateParticles();
@@ -433,19 +573,16 @@ function drawWinScreen() {
   let pcx = width / 2, pcy = 218;
   drawPortalVFX(pcx, pcy, 52, 82, 1.0);
 
-  // Player silhouette inside portal
-  noStroke();
-  fill(16, 10, 28, 220);
-  rectMode(CENTER);
-  rect(pcx, pcy + 10, 18, 26);
-  stroke(0, 255, 240, 160);
-  strokeWeight(1.5);
-  line(pcx - 5, pcy + 2, pcx + 5, pcy + 2);
-  stroke(255, 50, 150, 110);
-  strokeWeight(1);
-  line(pcx - 4, pcy + 12, pcx + 4, pcy + 12);
-  noStroke();
-  rectMode(CORNER);
+  // Jamie silhouette inside portal
+  if (jamieIdle.length > 0) {
+    let frame = jamieIdle[0];
+    push();
+    tint(255, 255, 255, 200);
+    imageMode(CENTER);
+    image(frame, pcx, pcy + 6, 32, 32);
+    imageMode(CORNER);
+    pop();
+  }
 
   textAlign(CENTER, CENTER);
 
@@ -464,7 +601,6 @@ function drawWinScreen() {
   textStyle(NORMAL);
   text("OBJECTIVE COMPLETE", pcx, 322);
 
-  // Death stats on win screen
   fill(255, 50, 150, 180);
   textSize(11);
   if (deathCount === 0) {
@@ -477,7 +613,6 @@ function drawWinScreen() {
   textSize(10);
   text("ACCESS NODE REACHED   //   NEURAL LINK ESTABLISHED", pcx, 368);
 
-  // Restart button
   stroke(0, 255, 240, 200);
   strokeWeight(1);
   noFill();
@@ -531,12 +666,18 @@ function getAllPlatforms() {
 function updatePlayer() {
   let speed = (gameState === "play" && focusActive) ? MOVE_SPEED * 0.3 : MOVE_SPEED;
 
-  player.vx = 0;
-  if (keyIsDown(LEFT_ARROW))  player.vx = -speed;
-  if (keyIsDown(RIGHT_ARROW)) player.vx =  speed;
+  // During dash, override horizontal velocity
+  if (dashTimer > 0) {
+    player.vx = DASH_SPEED * dashDir;
+  } else {
+    player.vx = 0;
+    if (keyIsDown(LEFT_ARROW)  || keyIsDown(65))  { player.vx = -speed; playerFacing = -1; }
+    if (keyIsDown(RIGHT_ARROW) || keyIsDown(68))  { player.vx =  speed; playerFacing =  1; }
+  }
 
-  // Record afterimage every few frames when moving
-  if (gameState === "play" && abs(player.vx) > 0.5 && frameCount % AFTERIMAGE_SPACING === 0) {
+  // Afterimage trail (more frequent during dash)
+  let trailRate = dashTimer > 0 ? 1 : AFTERIMAGE_SPACING;
+  if (gameState === "play" && abs(player.vx) > 0.5 && frameCount % trailRate === 0) {
     afterimages.push({ x: player.x, y: player.y, age: 0 });
     if (afterimages.length > AFTERIMAGE_COUNT) afterimages.shift();
   }
@@ -544,13 +685,13 @@ function updatePlayer() {
   player.vy += GRAVITY;
   if (player.vy > TERM_VEL) player.vy = TERM_VEL;
 
-  // Variable jump height — release UP early to cut jump short
-  if (jumpHeld && !keyIsDown(UP_ARROW) && player.vy < 0) {
+  // Variable jump height
+  if (jumpHeld && !keyIsDown(UP_ARROW) && !keyIsDown(87) && player.vy < 0) {
     player.vy *= JUMP_CUT_MULT;
     jumpHeld = false;
   }
 
-  // Coyote time tracking
+  // Coyote time
   if (player.onGround) {
     coyoteTimer = COYOTE_FRAMES;
     wasOnGround = true;
@@ -583,7 +724,6 @@ function updatePlayer() {
     }
   }
 
-  // Fall death
   if (player.y > height + 200) {
     triggerDeath();
   }
@@ -592,10 +732,24 @@ function updatePlayer() {
 function updateMovingPlatforms() {
   for (let mp of movingPlatforms) {
     let t = frameCount * mp.speed * 0.02;
+    let prevX = mp.x, prevY = mp.y;
     if (mp.axis === "x") {
       mp.x = mp.origin + sin(t) * mp.range;
     } else {
       mp.y = mp.origin + sin(t) * mp.range;
+    }
+    mp.dx = mp.x - prevX;
+    mp.dy = mp.y - prevY;
+  }
+
+  // Stick player to moving platform they're standing on
+  for (let mp of movingPlatforms) {
+    let feet = { x: player.x, y: player.y + player.h, w: player.w, h: 4 };
+    let top  = { x: mp.x, y: mp.y - 2, w: mp.w, h: 6 };
+    if (player.onGround && overlaps(feet, top)) {
+      player.x += mp.dx;
+      player.y += mp.dy;
+      break;
     }
   }
 }
@@ -617,6 +771,25 @@ function checkEnemyCollision() {
   }
 }
 
+function updateDash() {
+  if (dashTimer > 0) dashTimer--;
+  if (dashCooldown > 0) dashCooldown--;
+}
+
+function checkTrapCollision() {
+  // Spikes — always lethal
+  for (let s of spikes) {
+    if (overlaps(player, s)) { triggerDeath(); return; }
+  }
+  // Lasers — lethal only when active
+  for (let l of lasers) {
+    let cycle = (frameCount + l.phase) % LASER_CYCLE;
+    if (cycle < LASER_CYCLE * LASER_ON_FRAC) {
+      if (overlaps(player, l)) { triggerDeath(); return; }
+    }
+  }
+}
+
 function triggerDeath() {
   deathCount++;
   deathShakeTimer = DEATH_SHAKE_FRAMES;
@@ -624,7 +797,6 @@ function triggerDeath() {
   player.x = 60; player.y = 360;
   player.vx = 0; player.vy = 0;
 
-  // Reset focus on death so player can immediately use it
   focusActive   = false;
   focusFade     = 0;
   focusCooldown = 0;
@@ -632,11 +804,12 @@ function triggerDeath() {
   focusPulseOn  = false;
   focusPulseR   = 0;
 
-  // Clear afterimages
-  afterimages = [];
-  coyoteTimer = 0;
-  wasOnGround = false;
-  jumpHeld    = false;
+  afterimages  = [];
+  coyoteTimer  = 0;
+  wasOnGround  = false;
+  jumpHeld     = false;
+  dashTimer    = 0;
+  dashCooldown = 0;
 }
 
 function overlaps(a, b) {
@@ -651,18 +824,24 @@ function overlaps(a, b) {
 function keyPressed() {
   if (gameState === "start") { gameState = "intro"; introTimer = 0; return; }
 
-  // Jump with coyote time support
-  if (keyCode === UP_ARROW && (player.onGround || (wasOnGround && coyoteTimer > 0))) {
+  if ((keyCode === UP_ARROW || keyCode === 87) && (player.onGround || (wasOnGround && coyoteTimer > 0))) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
     wasOnGround = false;
     coyoteTimer = 0;
     jumpHeld = true;
   }
+
+  // Dash on SHIFT
+  if (keyCode === SHIFT && dashCooldown === 0 && dashTimer === 0 && gameState === "play") {
+    dashTimer    = DASH_FRAMES;
+    dashCooldown = DASH_COOLDOWN;
+    dashDir      = playerFacing;
+  }
 }
 
 function keyReleased() {
-  if (keyCode === UP_ARROW) {
+  if (keyCode === UP_ARROW || keyCode === 87) {
     jumpHeld = false;
   }
 }
@@ -684,13 +863,12 @@ function updateCamera() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  VISUAL — Parallax city skyline (image-based, 2 layers)
+//  VISUAL — Parallax city skyline
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawParallax(lowVis) {
   let dim = lowVis ? 0.30 : 0.80;
 
-  // Layer 1 — far (0.08× scroll)
   let off1 = camX * 0.08;
   for (let b of bgLayer1) {
     let sx = b.x - off1;
@@ -702,7 +880,6 @@ function drawParallax(lowVis) {
     pop();
   }
 
-  // Layer 2 — mid (0.25× scroll)
   let off2 = camX * 0.25;
   for (let b of bgLayer2) {
     let sx = b.x - off2;
@@ -750,7 +927,7 @@ function drawParticles() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  VISUAL — Harsh glare columns + intense glare zones
+//  VISUAL — Glare
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawLights() {
@@ -885,7 +1062,7 @@ function drawMovingPlatforms() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  VISUAL — Player (neon silhouette + afterimages)
+//  VISUAL — Player (Jamie sprite + neon effects)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawAfterimages() {
@@ -895,22 +1072,29 @@ function drawAfterimages() {
     let fade = map(ai.age, 0, 20, 50, 0);
     if (fade <= 0) { afterimages.splice(i, 1); i--; continue; }
 
-    let px = ai.x, py = ai.y;
-    noStroke();
-    fill(0, 255, 240, fade * 0.3);
-    rect(px - 1, py - 1, player.w + 2, player.h + 2);
-    fill(16, 10, 28, fade);
-    rect(px, py, player.w, player.h);
-
-    stroke(0, 255, 240, fade * 0.7);
-    strokeWeight(1);
-    line(px + 4, py + 9, px + player.w - 4, py + 9);
-    noStroke();
+    // Ghost sprite afterimage
+    if (jamieIdle.length > 0) {
+      let frame = jamieIdle[0];
+      push();
+      tint(0, 255, 240, fade * 0.6);
+      imageMode(CENTER);
+      let cx = ai.x + player.w / 2;
+      let cy = ai.y + player.h / 2;
+      if (playerFacing < 0) {
+        scale(-1, 1);
+        cx = -cx;
+      }
+      image(frame, cx, cy, JAMIE_DRAW_W, JAMIE_DRAW_H);
+      imageMode(CORNER);
+      pop();
+    }
   }
 }
 
 function drawPlayer() {
   let px = player.x, py = player.y, pw = player.w, ph = player.h;
+  let cx = px + pw / 2;
+  let cy = py + ph / 2;
   noStroke();
 
   // Outer cyan glow
@@ -919,31 +1103,44 @@ function drawPlayer() {
   fill(0, 255, 240, 28);
   rect(px - 2, py - 2, pw + 4, ph + 4);
 
-  // Dark body
-  fill(16, 10, 28);
-  rect(px, py, pw, ph);
+  // Jamie sprite (animated idle)
+  if (jamieIdle.length > 0) {
+    let frameIdx = floor(frameCount / JAMIE_ANIM_SPEED) % jamieIdle.length;
+    let frame = jamieIdle[frameIdx];
 
-  // Cyan visor
-  stroke(0, 255, 240, 220);
-  strokeWeight(2);
-  line(px + 4, py + 9, px + pw - 4, py + 9);
+    push();
+    imageMode(CENTER);
+    // Flip sprite based on facing direction
+    if (playerFacing < 0) {
+      scale(-1, 1);
+      image(frame, -cx, cy, JAMIE_DRAW_W, JAMIE_DRAW_H);
+    } else {
+      image(frame, cx, cy, JAMIE_DRAW_W, JAMIE_DRAW_H);
+    }
+    imageMode(CORNER);
+    pop();
+  } else {
+    // Fallback neon silhouette if sprites didn't load
+    fill(16, 10, 28);
+    rect(px, py, pw, ph);
+    stroke(0, 255, 240, 220);
+    strokeWeight(2);
+    line(px + 4, py + 9, px + pw - 4, py + 9);
+    stroke(255, 50, 150, 150);
+    strokeWeight(1);
+    line(px + 3, py + 20, px + pw - 3, py + 20);
+  }
 
-  // Hot pink body accent
-  stroke(255, 50, 150, 150);
-  strokeWeight(1);
-  line(px + 3, py + 20, px + pw - 3, py + 20);
-
-  // Edge highlights
-  stroke(0, 255, 240, 55);
+  // Edge highlights around hitbox
+  stroke(0, 255, 240, 35);
   strokeWeight(1);
   line(px, py, px, py + ph);
   line(px + pw, py, px + pw, py + ph);
-
   noStroke();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  VISUAL — Enemies (hot pink neon)
+//  VISUAL — Enemies
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawEnemyNeon(e, a, hi) {
@@ -989,10 +1186,89 @@ function drawEnemies() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  VISUAL — Danger proximity warning (screen-space red edge pulse near enemies)
+//  VISUAL — Traps (spikes + lasers)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function drawSpikes() {
+  let pcx = player.x + player.w / 2, pcy = player.y + player.h / 2;
+  for (let s of spikes) {
+    let hi = 0;
+    if (focusFade > 0 && distToRect(pcx, pcy, s.x, s.y, s.w, s.h) <= FOCUS_RADIUS) {
+      hi = focusFade;
+    }
+    let a = lerp(0.18, 1.0, hi);
+
+    // Spike triangle pointing up
+    let cx = s.x + s.w / 2;
+    noStroke();
+    fill(255, 80, 40, 22 * a);
+    triangle(cx, s.y - 2, s.x - 2, s.y + s.h + 2, s.x + s.w + 2, s.y + s.h + 2);
+
+    fill(80, 20, 10, 210 * a);
+    triangle(cx, s.y, s.x, s.y + s.h, s.x + s.w, s.y + s.h);
+
+    stroke(255, 120, 40, 190 * a);
+    strokeWeight(1.5);
+    line(s.x, s.y + s.h, cx, s.y);
+    line(cx, s.y, s.x + s.w, s.y + s.h);
+
+    if (hi > 0) {
+      stroke(0, 255, 240, hi * 180);
+      strokeWeight(1);
+      line(s.x, s.y + s.h, cx, s.y);
+      line(cx, s.y, s.x + s.w, s.y + s.h);
+    }
+    noStroke();
+  }
+}
+
+function drawLasers() {
+  let pcx = player.x + player.w / 2, pcy = player.y + player.h / 2;
+  for (let l of lasers) {
+    let cycle = (frameCount + l.phase) % LASER_CYCLE;
+    let isOn = cycle < LASER_CYCLE * LASER_ON_FRAC;
+
+    let hi = 0;
+    if (focusFade > 0 && distToRect(pcx, pcy, l.x, l.y, l.w, l.h) <= FOCUS_RADIUS) {
+      hi = focusFade;
+    }
+    let vis = lerp(0.18, 1.0, hi);
+
+    if (isOn) {
+      // Active laser beam — bright red
+      let flicker = 0.7 + 0.3 * sin(frameCount * 0.5);
+      noStroke();
+      fill(255, 20, 60, 12 * vis);
+      rect(l.x - 2, l.y - 6, l.w + 4, l.h + 12);
+      fill(255, 40, 80, 160 * vis * flicker);
+      rect(l.x, l.y, l.w, l.h);
+      fill(255, 180, 180, 90 * vis * flicker);
+      rect(l.x, l.y + 1, l.w, 2);
+    } else {
+      // Charging / off — dim warning dots at endpoints
+      let chargeProgress = cycle / (LASER_CYCLE * (1 - LASER_ON_FRAC));
+      let dotAlpha = chargeProgress * 120 * vis;
+      noStroke();
+      fill(255, 40, 80, dotAlpha);
+      ellipse(l.x + 3, l.y + 2, 5, 5);
+      ellipse(l.x + l.w - 3, l.y + 2, 5, 5);
+      // Faint dashed line preview
+      stroke(255, 40, 80, dotAlpha * 0.3);
+      strokeWeight(1);
+      for (let dx = 0; dx < l.w; dx += 12) {
+        line(l.x + dx, l.y + 2, l.x + min(dx + 5, l.w), l.y + 2);
+      }
+      noStroke();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VISUAL — Danger warning
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawDangerWarning() {
+  if (enemies.length === 0) return;
   let pcx = player.x + player.w / 2;
   let pcy = player.y + player.h / 2;
   let closestDist = Infinity;
@@ -1001,7 +1277,6 @@ function drawDangerWarning() {
     if (d < closestDist) closestDist = d;
   }
 
-  // Subtle red vignette when within 150px of any enemy
   if (closestDist < 150) {
     let intensity = map(closestDist, 150, 30, 0, 1);
     intensity = constrain(intensity, 0, 1);
@@ -1162,10 +1437,32 @@ function drawFocusIndicator() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  VISUAL — Death counter HUD
+//  VISUAL — HUD
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawDeathCounter() {
+  // Dash indicator (bottom-left)
+  let dashReady = dashCooldown === 0 && dashTimer === 0;
+  noStroke();
+  if (dashReady) {
+    fill(0, 255, 240, 40);
+    rect(12, height - 28, 60, 18, 3);
+    fill(0, 255, 240, 200);
+    textSize(10); textStyle(BOLD); textAlign(LEFT, TOP);
+    text("DASH RDY", 18, height - 25);
+  } else {
+    fill(60, 50, 80, 40);
+    rect(12, height - 28, 60, 18, 3);
+    let prog = 1 - dashCooldown / DASH_COOLDOWN;
+    fill(0, 255, 240, 80);
+    rect(12, height - 28, 60 * prog, 18, 3);
+    fill(120, 100, 160, 160);
+    textSize(10); textStyle(BOLD); textAlign(LEFT, TOP);
+    text("DASH", 18, height - 25);
+  }
+  textStyle(NORMAL);
+  textAlign(LEFT, BASELINE);
+
   if (deathCount === 0) return;
 
   textAlign(RIGHT, TOP);
@@ -1213,17 +1510,11 @@ function resetGame() {
   player.x = 60; player.y = 360;
   player.vx = 0; player.vy = 0;
   player.onGround = false;
+  playerFacing = 1;
 
-  let startPositions = [
-    { x: 1185, dir: 1 },
-    { x: 2680, dir: -1 },
-    { x: 2860, dir: 1 },
-    { x: 4050, dir: 1 },
-  ];
-  for (let i = 0; i < enemies.length; i++) {
-    enemies[i].x = startPositions[i].x;
-    enemies[i].dir = startPositions[i].dir;
-  }
+  // Generate a fresh random level on restart
+  generateLevel();
+  initParallax();
 
   camX            = 0;
   focusActive     = false;
@@ -1240,6 +1531,8 @@ function resetGame() {
   coyoteTimer     = 0;
   wasOnGround     = false;
   jumpHeld        = false;
+  dashTimer       = 0;
+  dashCooldown    = 0;
 
   gameState  = "start";
   introTimer = 0;
