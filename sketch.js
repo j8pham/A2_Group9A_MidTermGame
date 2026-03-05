@@ -10,9 +10,8 @@ const JUMP_FORCE = -12;
 const TERM_VEL = 16;
 const WORLD_W = 4800;
 
-const FOCUS_RADIUS = 200;
-const FOCUS_FADE_FRAMES = 90;
-const FOCUS_COOLDOWN_FRAMES = 210;
+const FOCUS_RADIUS = 280;
+const FOCUS_FADE_FRAMES = 30;
 
 const INTRO_NORMAL_F = 60;
 const INTRO_SHAKE_F = 30;
@@ -70,6 +69,8 @@ const LASER_ON_FRAC = 0.6; // fraction of cycle the laser is active
 // ── ASSET LOADING ────────────────────────────────────────────────────────────
 let buildingImgs = [];
 let jamieIdle = []; // 3-frame idle animation
+let jamieRun = [];  // 4-frame run cycle
+let jamieJump = []; // 5-frame jump sequence
 
 function preload() {
   for (let i = 2; i <= 8; i++) {
@@ -80,6 +81,12 @@ function preload() {
   }
   for (let i = 1; i <= 3; i++) {
     jamieIdle.push(loadImage("assets/JAMIE/IDLE/Jamie_IDLE_" + i + ".png"));
+  }
+  for (let i = 1; i <= 4; i++) {
+    jamieRun.push(loadImage("assets/JAMIE/RUN/Jamie_RUN_" + i + ".png"));
+  }
+  for (let i = 1; i <= 5; i++) {
+    jamieJump.push(loadImage("assets/JAMIE/JUMP/Jamie_JUMP_" + i + ".png"));
   }
 }
 
@@ -97,10 +104,10 @@ let dashDir = 1;
 let gameState = "start";
 let introTimer = 0;
 let winTimer = 0;
+let menuSelection = 0; // 0 = START GAME, 1 = EXIT GAME
 
 let focusActive = false;
 let focusFade = 0;
-let focusCooldown = 0;
 let prevFocusKey = false;
 let focusPulseR = 0;
 let focusPulseOn = false;
@@ -338,8 +345,23 @@ function generateLevel() {
         }
       }
 
-      // ── Place laser between this platform and the next gap ──
-      if (cfg.laserChance > 0 && random() < cfg.laserChance) {
+      // ── Place laser above this platform ──
+      let wantsLaser = cfg.laserChance > 0 && random() < cfg.laserChance;
+      if (wantsLaser) {
+        // If enemy + laser combo, widen the platform so it's not unfair
+        if (wantsEnemy) {
+          let comboBoost = 60;
+          platW += comboBoost;
+          // Update the platform we already pushed
+          platforms[platforms.length - 1].w = platW;
+          // Update enemy patrol bounds to match wider platform
+          if (enemies.length > 0) {
+            let lastE = enemies[enemies.length - 1];
+            if (lastE.leftBound === platX) {
+              lastE.rightBound = platX + platW - lastE.w;
+            }
+          }
+        }
         let laserY = newY - random(40, 80);
         laserY = constrain(laserY, 60, 380);
         lasers.push({
@@ -564,6 +586,24 @@ function draw() {
 //  GAME STATES
 // ═══════════════════════════════════════════════════════════════════════════════
 
+function drawGlitchLine(y, halfW, col, maxAlpha) {
+  // Broken glitchy horizontal line with gaps and jitter
+  let segments = 18;
+  let segW = (halfW * 2) / segments;
+  let cx = width / 2;
+  for (let i = 0; i < segments; i++) {
+    if (random() < 0.3) continue; // gaps
+    let sx = cx - halfW + i * segW;
+    let jy = y + random(-1.5, 1.5);
+    let sw = segW * random(0.5, 1.0);
+    let a = maxAlpha * random(0.4, 1.0);
+    stroke(red(col), green(col), blue(col), a);
+    strokeWeight(random(1, 2.5));
+    line(sx, jy, sx + sw, jy);
+  }
+  noStroke();
+}
+
 function drawStartScreen() {
   background(12, 8, 20);
 
@@ -575,41 +615,179 @@ function drawStartScreen() {
   updateParticles();
   drawParticles();
 
+  // Update menu selection via mouse hover on buttons
+  let btnW = 180, btnH = 34;
+  let startBtnY = 290, exitBtnY = 335;
+  let btnX = width / 2 - btnW / 2;
+  if (mouseX >= btnX && mouseX <= btnX + btnW) {
+    if (mouseY >= startBtnY && mouseY <= startBtnY + btnH) menuSelection = 0;
+    if (mouseY >= exitBtnY && mouseY <= exitBtnY + btnH) menuSelection = 1;
+  }
+
+  // Arrow key menu navigation
+  // (handled in keyPressed)
+
+  let cx = width / 2;
   textAlign(CENTER, CENTER);
   noStroke();
 
+  // ── TITLE: "DATA BREACH" with neon cyan glow ──
+  let titleY = 80;
   let titleGlow = 220 + 35 * sin(frameCount * 0.04);
-  fill(0, titleGlow, constrain(titleGlow - 10, 0, 255));
-  textSize(60);
+
+  // Glow layers behind title
+  fill(0, titleGlow, constrain(titleGlow - 10, 0, 255), 15);
+  textSize(64);
   textStyle(BOLD);
-  text("DATA BREACH", width / 2, height / 2 - 72);
+  text("DATA BREACH", cx + 2, titleY + 2);
+  text("DATA BREACH", cx - 2, titleY - 2);
 
-  stroke(255, 50, 150, 90);
-  strokeWeight(1);
-  line(width / 2 - 160, height / 2 - 30, width / 2 + 160, height / 2 - 30);
-  noStroke();
+  // Main title
+  fill(0, titleGlow, constrain(titleGlow - 10, 0, 255));
+  textSize(62);
+  text("DATA BREACH", cx, titleY);
 
+  // Red glitchy lines above and below title
+  let glitchCol = color(255, 40, 80);
+  drawGlitchLine(titleY - 38, 200, glitchCol, 180);
+  drawGlitchLine(titleY + 38, 200, glitchCol, 180);
+
+  // ── SUBTITLE ──
   fill(90, 80, 115);
   textSize(12);
   textStyle(NORMAL);
-  text("VISION IS A LIMITED RESOURCE", width / 2, height / 2 - 5);
+  text("VISION IS A LIMITED RESOURCE", cx, titleY + 60);
 
-  fill(55, 50, 75);
-  textSize(11);
-  text(
-    "WASD / ARROWS  MOVE + JUMP      F  FOCUS      SHIFT  DASH",
-    width / 2,
-    height / 2 + 30,
-  );
+  // ── MODERN CONTROL DISPLAY ──
+  let ctrlY = 190;
+  let totalCtrlW = 520;
+  let startX = cx - totalCtrlW / 2;
 
+  // WASD cluster
+  drawKeyCluster(startX, ctrlY, ["W", "A", "S", "D"]);
+  fill(70, 65, 90);
+  textSize(9);
+  textAlign(CENTER, TOP);
+  text("MOVE", startX + 34, ctrlY + 48);
+
+  // Arrow cluster
+  let arrowX = startX + 120;
+  drawKeyCluster(arrowX, ctrlY, ["\u2191", "\u2190", "\u2193", "\u2192"]);
+  fill(70, 65, 90);
+  textSize(9);
+  textAlign(CENTER, TOP);
+  text("MOVE", arrowX + 34, ctrlY + 48);
+
+  // F key
+  let fX = startX + 270;
+  drawKeyCap(fX, ctrlY + 10, 32, 28, "F");
+  fill(70, 65, 90);
+  textSize(9);
+  textAlign(CENTER, TOP);
+  text("FOCUS", fX + 16, ctrlY + 48);
+
+  // SHIFT key
+  let shiftX = startX + 360;
+  drawKeyCap(shiftX, ctrlY + 10, 60, 28, "SHIFT");
+  fill(70, 65, 90);
+  textSize(9);
+  textAlign(CENTER, TOP);
+  text("DASH", shiftX + 30, ctrlY + 48);
+
+  // ── MENU BUTTONS ──
+  textAlign(CENTER, CENTER);
+  drawMenuButton(cx, startBtnY + btnH / 2, btnW, btnH, "START GAME", menuSelection === 0);
+  drawMenuButton(cx, exitBtnY + btnH / 2, btnW, btnH, "EXIT GAME", menuSelection === 1);
+
+  // ── Blinking prompt ──
   if (sin(frameCount * 0.07) > 0) {
-    fill(0, 255, 240);
-    textSize(13);
-    text("PRESS ANY KEY TO BEGIN", width / 2, height / 2 + 80);
+    fill(60, 55, 80, 120);
+    textSize(10);
+    text("PRESS ENTER OR CLICK TO SELECT", cx, 395);
   }
 
   drawScanlines();
   drawVignette();
+}
+
+function drawKeyCap(x, y, w, h, label) {
+  // Dark keycap with subtle border
+  noStroke();
+  fill(30, 25, 45, 200);
+  rect(x, y, w, h, 4);
+  stroke(80, 70, 110, 120);
+  strokeWeight(1);
+  noFill();
+  rect(x, y, w, h, 4);
+
+  // Key label
+  noStroke();
+  fill(140, 130, 170);
+  textSize(11);
+  textStyle(BOLD);
+  textAlign(CENTER, CENTER);
+  text(label, x + w / 2, y + h / 2);
+  textStyle(NORMAL);
+}
+
+function drawKeyCluster(x, y, keys) {
+  // WASD / Arrow layout: top-center, bottom row of 3
+  let kw = 24, kh = 20, gap = 2;
+  // Top key (W or Up)
+  drawKeyCap(x + kw + gap, y, kw, kh, keys[0]);
+  // Bottom row (A/Left, S/Down, D/Right)
+  drawKeyCap(x, y + kh + gap, kw, kh, keys[1]);
+  drawKeyCap(x + kw + gap, y + kh + gap, kw, kh, keys[2]);
+  drawKeyCap(x + (kw + gap) * 2, y + kh + gap, kw, kh, keys[3]);
+}
+
+function drawMenuButton(cx, cy, w, h, label, selected) {
+  let bx = cx - w / 2, by = cy - h / 2;
+
+  if (selected) {
+    // Neon cyan style with glitch lines
+    let pulse = 0.7 + 0.3 * sin(frameCount * 0.08);
+    noStroke();
+    fill(0, 255, 240, 12 * pulse);
+    rect(bx - 4, by - 4, w + 8, h + 8, 4);
+    fill(0, 255, 240, 25 * pulse);
+    rect(bx, by, w, h, 3);
+
+    // Glitch lines above/below button
+    let gc = color(255, 40, 80);
+    drawGlitchLine(by - 3, w / 2 - 10, gc, 120);
+    drawGlitchLine(by + h + 3, w / 2 - 10, gc, 120);
+
+    // Cyan border
+    stroke(0, 255, 240, 200 * pulse);
+    strokeWeight(1.5);
+    noFill();
+    rect(bx, by, w, h, 3);
+    noStroke();
+
+    // Text
+    fill(0, 255, 240);
+    textSize(14);
+    textStyle(BOLD);
+    text(label, cx, cy);
+    textStyle(NORMAL);
+  } else {
+    // Dimmed gray style
+    noStroke();
+    fill(35, 30, 50, 150);
+    rect(bx, by, w, h, 3);
+    stroke(70, 60, 90, 80);
+    strokeWeight(1);
+    noFill();
+    rect(bx, by, w, h, 3);
+    noStroke();
+
+    fill(100, 90, 120);
+    textSize(14);
+    textStyle(BOLD);
+    text(label, cx, cy);
+    textStyle(NORMAL);
+  }
 }
 
 function drawIntroScene() {
@@ -732,20 +910,21 @@ function drawWinScreen() {
 
 function updateFocus() {
   let fHeld = keyIsDown(70);
+  let canFocus = player.onGround && abs(player.vx) < 0.5;
 
-  if (fHeld && !prevFocusKey && focusCooldown === 0) {
+  if (fHeld && canFocus) {
+    if (!focusActive) {
+      // Just activated
+      focusPulseOn = true;
+      focusPulseR = 0;
+      focusFlashTimer = FOCUS_FLASH_FRAMES;
+    }
     focusActive = true;
-    focusPulseOn = true;
-    focusPulseR = 0;
-    focusFlashTimer = FOCUS_FLASH_FRAMES;
-  }
-  if (!fHeld && focusActive) {
+  } else {
     focusActive = false;
-    focusCooldown = FOCUS_COOLDOWN_FRAMES;
   }
 
   focusFade = focusActive ? 1.0 : max(0, focusFade - 1 / FOCUS_FADE_FRAMES);
-  if (focusCooldown > 0) focusCooldown--;
   prevFocusKey = fHeld;
 }
 
@@ -927,7 +1106,6 @@ function triggerDeath() {
 
   focusActive = false;
   focusFade = 0;
-  focusCooldown = 0;
   prevFocusKey = false;
   focusPulseOn = false;
   focusPulseR = 0;
@@ -952,8 +1130,23 @@ function overlaps(a, b) {
 
 function keyPressed() {
   if (gameState === "start") {
-    gameState = "intro";
-    introTimer = 0;
+    // Menu navigation
+    if (keyCode === DOWN_ARROW || keyCode === 83) {
+      menuSelection = (menuSelection + 1) % 2;
+      return;
+    }
+    if (keyCode === UP_ARROW || keyCode === 87) {
+      menuSelection = (menuSelection + 1) % 2;
+      return;
+    }
+    if (keyCode === ENTER || keyCode === 32) {
+      if (menuSelection === 0) {
+        gameState = "intro";
+        introTimer = 0;
+      }
+      // menuSelection === 1 (EXIT) — no-op in browser
+      return;
+    }
     return;
   }
 
@@ -988,6 +1181,18 @@ function keyReleased() {
 }
 
 function mousePressed() {
+  if (gameState === "start") {
+    let btnW = 180, btnH = 34;
+    let btnX = width / 2 - btnW / 2;
+    let startBtnY = 290;
+    if (mouseX >= btnX && mouseX <= btnX + btnW) {
+      if (mouseY >= startBtnY && mouseY <= startBtnY + btnH) {
+        gameState = "intro";
+        introTimer = 0;
+      }
+    }
+    return;
+  }
   if (
     gameState === "win" &&
     mouseX >= WIN_BTN.x &&
@@ -1264,19 +1469,36 @@ function drawPlayer() {
   fill(0, 255, 240, 28);
   rect(px - 2, py - 2, pw + 4, ph + 4);
 
-  // Jamie sprite (animated idle)
-  if (jamieIdle.length > 0) {
-    let frameIdx = floor(frameCount / JAMIE_ANIM_SPEED) % jamieIdle.length;
-    let frame = jamieIdle[frameIdx];
+  // Jamie sprite — pick animation based on state
+  let spriteFrame = null;
+  if (!player.onGround && jamieJump.length > 0) {
+    // Jump: pick frame based on vertical velocity
+    let jIdx;
+    if (player.vy < -4) jIdx = 0;        // rising fast
+    else if (player.vy < 0) jIdx = 1;    // rising slow
+    else if (player.vy < 2) jIdx = 2;    // apex
+    else if (player.vy < 6) jIdx = 3;    // falling
+    else jIdx = 4;                         // falling fast
+    jIdx = min(jIdx, jamieJump.length - 1);
+    spriteFrame = jamieJump[jIdx];
+  } else if (abs(player.vx) > 0.5 && jamieRun.length > 0) {
+    // Run cycle: 4 frames at 6fps
+    let rIdx = floor(frameCount / 6) % jamieRun.length;
+    spriteFrame = jamieRun[rIdx];
+  } else if (jamieIdle.length > 0) {
+    // Idle
+    let iIdx = floor(frameCount / JAMIE_ANIM_SPEED) % jamieIdle.length;
+    spriteFrame = jamieIdle[iIdx];
+  }
 
+  if (spriteFrame) {
     push();
     imageMode(CENTER);
-    // Flip sprite based on facing direction
     if (playerFacing < 0) {
       scale(-1, 1);
-      image(frame, -cx, cy, JAMIE_DRAW_W, JAMIE_DRAW_H);
+      image(spriteFrame, -cx, cy, JAMIE_DRAW_W, JAMIE_DRAW_H);
     } else {
-      image(frame, cx, cy, JAMIE_DRAW_W, JAMIE_DRAW_H);
+      image(spriteFrame, cx, cy, JAMIE_DRAW_W, JAMIE_DRAW_H);
     }
     imageMode(CORNER);
     pop();
@@ -1610,21 +1832,26 @@ function drawFocusPulse() {
 function drawFocusIndicator() {
   let cx = player.x + player.w / 2;
   let cy = player.y + player.h + 12;
+  let canFocus = player.onGround && abs(player.vx) < 0.5;
   noStroke();
 
-  if (focusCooldown > 0) {
-    fill(45, 40, 60);
-    ellipse(cx, cy, 8, 8);
-    let prog = 1 - focusCooldown / FOCUS_COOLDOWN_FRAMES;
-    stroke(0, 255, 240, 90);
-    strokeWeight(1.5);
-    noFill();
-    arc(cx, cy, 13, 13, -HALF_PI, -HALF_PI + prog * TWO_PI);
-  } else {
+  if (focusActive) {
+    // Active — bright pulsing dot
+    let pulse = 0.7 + 0.3 * sin(frameCount * 0.15);
+    fill(0, 255, 240, 50 * pulse);
+    ellipse(cx, cy, 18, 18);
+    fill(0, 255, 240);
+    ellipse(cx, cy, 7, 7);
+  } else if (canFocus) {
+    // Ready — normal dot
     fill(0, 255, 240, 35);
     ellipse(cx, cy, 14, 14);
     fill(0, 255, 240);
     ellipse(cx, cy, 6, 6);
+  } else {
+    // Unavailable — dim
+    fill(45, 40, 60, 120);
+    ellipse(cx, cy, 8, 8);
   }
   noStroke();
 }
@@ -1634,28 +1861,42 @@ function drawFocusIndicator() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawDeathCounter() {
-  // Dash indicator (bottom-left)
+  // Dash indicator (top-left, prominent)
   let dashReady = dashCooldown === 0 && dashTimer === 0;
+  let dashX = 14, dashY = 10, dashW = 72, dashH = 22;
   noStroke();
   if (dashReady) {
-    fill(0, 255, 240, 40);
-    rect(12, height - 28, 60, 18, 3);
-    fill(0, 255, 240, 200);
-    textSize(10);
+    let pulse = 0.7 + 0.3 * sin(frameCount * 0.12);
+    fill(0, 255, 240, 35 * pulse);
+    rect(dashX - 2, dashY - 2, dashW + 4, dashH + 4, 5);
+    fill(0, 255, 240, 50);
+    rect(dashX, dashY, dashW, dashH, 4);
+    stroke(0, 255, 240, 180 * pulse);
+    strokeWeight(1);
+    noFill();
+    rect(dashX, dashY, dashW, dashH, 4);
+    noStroke();
+    fill(0, 255, 240, 230);
+    textSize(11);
     textStyle(BOLD);
-    textAlign(LEFT, TOP);
-    text("DASH RDY", 18, height - 25);
+    textAlign(CENTER, CENTER);
+    text("DASH RDY", dashX + dashW / 2, dashY + dashH / 2);
   } else {
-    fill(60, 50, 80, 40);
-    rect(12, height - 28, 60, 18, 3);
+    fill(30, 25, 45, 180);
+    rect(dashX, dashY, dashW, dashH, 4);
     let prog = 1 - dashCooldown / DASH_COOLDOWN;
-    fill(0, 255, 240, 80);
-    rect(12, height - 28, 60 * prog, 18, 3);
-    fill(120, 100, 160, 160);
-    textSize(10);
+    fill(0, 255, 240, 60);
+    rect(dashX, dashY, dashW * prog, dashH, 4);
+    stroke(60, 50, 80, 120);
+    strokeWeight(1);
+    noFill();
+    rect(dashX, dashY, dashW, dashH, 4);
+    noStroke();
+    fill(100, 90, 130, 180);
+    textSize(11);
     textStyle(BOLD);
-    textAlign(LEFT, TOP);
-    text("DASH", 18, height - 25);
+    textAlign(CENTER, CENTER);
+    text("DASH", dashX + dashW / 2, dashY + dashH / 2);
   }
   textStyle(NORMAL);
   textAlign(LEFT, BASELINE);
@@ -1719,7 +1960,6 @@ function resetGame() {
   camX = 0;
   focusActive = false;
   focusFade = 0;
-  focusCooldown = 0;
   prevFocusKey = false;
   focusPulseOn = false;
   focusPulseR = 0;
