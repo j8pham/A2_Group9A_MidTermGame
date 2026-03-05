@@ -4,19 +4,19 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const GRAVITY    = 0.6;
+const GRAVITY = 0.6;
 const MOVE_SPEED = 4;
 const JUMP_FORCE = -12;
-const TERM_VEL   = 16;
-const WORLD_W    = 4800;
+const TERM_VEL = 16;
+const WORLD_W = 4800;
 
-const FOCUS_RADIUS          = 200;
-const FOCUS_FADE_FRAMES     = 90;
+const FOCUS_RADIUS = 200;
+const FOCUS_FADE_FRAMES = 90;
 const FOCUS_COOLDOWN_FRAMES = 210;
 
 const INTRO_NORMAL_F = 60;
-const INTRO_SHAKE_F  = 30;
-const INTRO_FLASH_F  = 24;
+const INTRO_SHAKE_F = 30;
+const INTRO_FLASH_F = 24;
 
 const RAIN_COUNT = 50;
 const MOTE_COUNT = 15;
@@ -25,22 +25,22 @@ const COYOTE_FRAMES = 7;
 const JUMP_CUT_MULT = 0.42;
 
 // Physics-derived jump envelope (used by generator)
-const MAX_JUMP_H   = 110;  // max height gain in pixels
-const MAX_JUMP_W   = 145;  // max horizontal distance in air
-const SAFE_GAP     = 130;  // comfortable gap (leaves margin)
+const MAX_JUMP_H = 110; // max height gain in pixels
+const MAX_JUMP_W = 145; // max horizontal distance in air
+const SAFE_GAP = 130; // comfortable gap (leaves margin)
 
 const LIGHT_SOURCES = [
-  { x: 200,  y: 0, w: 300, h: 450, phase: 0.0,  speed: 0.038 },
-  { x: 850,  y: 0, w: 240, h: 450, phase: 2.1,  speed: 0.055 },
-  { x: 1480, y: 0, w: 320, h: 450, phase: 1.4,  speed: 0.031 },
-  { x: 2200, y: 0, w: 260, h: 450, phase: 0.7,  speed: 0.048 },
-  { x: 3000, y: 0, w: 280, h: 450, phase: 1.9,  speed: 0.042 },
-  { x: 3800, y: 0, w: 350, h: 450, phase: 0.3,  speed: 0.036 },
+  { x: 200, y: 0, w: 300, h: 450, phase: 0.0, speed: 0.038 },
+  { x: 850, y: 0, w: 240, h: 450, phase: 2.1, speed: 0.055 },
+  { x: 1480, y: 0, w: 320, h: 450, phase: 1.4, speed: 0.031 },
+  { x: 2200, y: 0, w: 260, h: 450, phase: 0.7, speed: 0.048 },
+  { x: 3000, y: 0, w: 280, h: 450, phase: 1.9, speed: 0.042 },
+  { x: 3800, y: 0, w: 350, h: 450, phase: 0.3, speed: 0.036 },
 ];
 
 const GLARE_ZONES = [
-  { x: 2600, w: 600,  intensity: 2.2 },
-  { x: 3800, w: 900,  intensity: 3.0 },
+  { x: 2600, w: 600, intensity: 2.2 },
+  { x: 3800, w: 900, intensity: 3.0 },
 ];
 
 const WIN_BTN = { x: 310, y: 378, w: 180, h: 40 };
@@ -49,32 +49,34 @@ const DEATH_SHAKE_FRAMES = 18;
 const DEATH_FLASH_FRAMES = 14;
 const FOCUS_FLASH_FRAMES = 10;
 
-const AFTERIMAGE_COUNT   = 4;
+const AFTERIMAGE_COUNT = 4;
 const AFTERIMAGE_SPACING = 3;
 
-const JAMIE_ANIM_SPEED = 8;  // frames per idle animation frame
-const JAMIE_DRAW_W     = 48; // display width for sprite
-const JAMIE_DRAW_H     = 48; // display height for sprite
+const JAMIE_ANIM_SPEED = 8; // frames per idle animation frame
+const JAMIE_DRAW_W = 48; // display width for sprite
+const JAMIE_DRAW_H = 48; // display height for sprite
 
 // Dash mechanic
-const DASH_SPEED       = 14;
-const DASH_FRAMES      = 8;
-const DASH_COOLDOWN    = 45;
+const DASH_SPEED = 14;
+const DASH_FRAMES = 8;
+const DASH_COOLDOWN = 45;
 
 // Traps
 const SPIKE_W = 16;
 const SPIKE_H = 14;
-const LASER_CYCLE = 180;  // frames for one on/off cycle
+const LASER_CYCLE = 180; // frames for one on/off cycle
 const LASER_ON_FRAC = 0.6; // fraction of cycle the laser is active
 
 // ── ASSET LOADING ────────────────────────────────────────────────────────────
 let buildingImgs = [];
-let jamieIdle    = [];  // 3-frame idle animation
+let jamieIdle = []; // 3-frame idle animation
 
 function preload() {
   for (let i = 2; i <= 8; i++) {
     let pad = i < 10 ? "0" + i : "" + i;
-    buildingImgs.push(loadImage("assets/Single Buildings/Pixel Art Buildings-" + pad + ".png"));
+    buildingImgs.push(
+      loadImage("assets/Single Buildings/Pixel Art Buildings-" + pad + ".png"),
+    );
   }
   for (let i = 1; i <= 3; i++) {
     jamieIdle.push(loadImage("assets/JAMIE/IDLE/Jamie_IDLE_" + i + ".png"));
@@ -86,38 +88,38 @@ let player, platforms, movingPlatforms, enemies, goal;
 let spikes = [];
 let lasers = [];
 let camX = 0;
-let playerFacing = 1;  // 1 = right, -1 = left
+let playerFacing = 1; // 1 = right, -1 = left
 
-let dashTimer    = 0;
+let dashTimer = 0;
 let dashCooldown = 0;
-let dashDir      = 1;
+let dashDir = 1;
 
-let gameState  = "start";
+let gameState = "start";
 let introTimer = 0;
-let winTimer   = 0;
+let winTimer = 0;
 
-let focusActive     = false;
-let focusFade       = 0;
-let focusCooldown   = 0;
-let prevFocusKey    = false;
-let focusPulseR     = 0;
-let focusPulseOn    = false;
+let focusActive = false;
+let focusFade = 0;
+let focusCooldown = 0;
+let prevFocusKey = false;
+let focusPulseR = 0;
+let focusPulseOn = false;
 let focusFlashTimer = 0;
 
-let deathCount      = 0;
+let deathCount = 0;
 let deathShakeTimer = 0;
 let deathFlashTimer = 0;
 
 let coyoteTimer = 0;
 let wasOnGround = false;
-let jumpHeld    = false;
+let jumpHeld = false;
 
 let afterimages = [];
 
 let bgLayer1 = [];
 let bgLayer2 = [];
-let rain     = [];
-let motes    = [];
+let rain = [];
+let motes = [];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PROCEDURAL LEVEL GENERATOR
@@ -126,31 +128,79 @@ let motes    = [];
 // Zone configs: [minPlatW, maxPlatW, minGap, maxGap, minY, maxY, enemyChance, movingChance, enemySpeedMin, enemySpeedMax]
 const ZONE_CONFIGS = [
   // Zone 1: Tutorial (0–1200) — wide, easy, no enemies, no traps
-  { minW: 140, maxW: 350, minGap: 50,  maxGap: 90,  minY: 340, maxY: 400,
-    enemyChance: 0, movingChance: 0, eSpeedMin: 0, eSpeedMax: 0, enemyPlatW: 0,
-    spikeChance: 0, laserChance: 0 },
+  {
+    minW: 140,
+    maxW: 350,
+    minGap: 50,
+    maxGap: 90,
+    minY: 340,
+    maxY: 400,
+    enemyChance: 0,
+    movingChance: 0,
+    eSpeedMin: 0,
+    eSpeedMax: 0,
+    enemyPlatW: 0,
+    spikeChance: 0,
+    laserChance: 0,
+  },
   // Zone 2: Medium — spikes appear, occasional lasers
-  { minW: 90,  maxW: 170, minGap: 70,  maxGap: 130, minY: 240, maxY: 380,
-    enemyChance: 0.25, movingChance: 0.15, eSpeedMin: 0.8, eSpeedMax: 1.3, enemyPlatW: 180,
-    spikeChance: 0.2, laserChance: 0.1 },
+  {
+    minW: 90,
+    maxW: 170,
+    minGap: 70,
+    maxGap: 130,
+    minY: 240,
+    maxY: 380,
+    enemyChance: 0.25,
+    movingChance: 0.15,
+    eSpeedMin: 0.8,
+    eSpeedMax: 1.3,
+    enemyPlatW: 180,
+    spikeChance: 0.2,
+    laserChance: 0.1,
+  },
   // Zone 3: Hard — more traps
-  { minW: 70,  maxW: 120, minGap: 80,  maxGap: 150, minY: 220, maxY: 380,
-    enemyChance: 0.35, movingChance: 0.25, eSpeedMin: 1.2, eSpeedMax: 1.8, enemyPlatW: 155,
-    spikeChance: 0.3, laserChance: 0.15 },
+  {
+    minW: 70,
+    maxW: 120,
+    minGap: 80,
+    maxGap: 150,
+    minY: 220,
+    maxY: 380,
+    enemyChance: 0.35,
+    movingChance: 0.25,
+    eSpeedMin: 1.2,
+    eSpeedMax: 1.8,
+    enemyPlatW: 155,
+    spikeChance: 0.3,
+    laserChance: 0.15,
+  },
   // Zone 4: Brutal — traps everywhere
-  { minW: 55,  maxW: 95,  minGap: 100, maxGap: 170, minY: 180, maxY: 370,
-    enemyChance: 0.40, movingChance: 0.3, eSpeedMin: 1.5, eSpeedMax: 2.2, enemyPlatW: 135,
-    spikeChance: 0.35, laserChance: 0.2 },
+  {
+    minW: 55,
+    maxW: 95,
+    minGap: 100,
+    maxGap: 170,
+    minY: 180,
+    maxY: 370,
+    enemyChance: 0.4,
+    movingChance: 0.3,
+    eSpeedMin: 1.5,
+    eSpeedMax: 2.2,
+    enemyPlatW: 135,
+    spikeChance: 0.35,
+    laserChance: 0.2,
+  },
 ];
 
 const ZONE_BOUNDARIES = [0, 1200, 2400, 3600, WORLD_W];
 
 function generateLevel() {
-  platforms       = [];
+  platforms = [];
   movingPlatforms = [];
-  enemies         = [];
-  spikes          = [];
-  lasers          = [];
+  enemies = [];
+  spikes = [];
+  lasers = [];
 
   // ── Always start with a safe wide ground platform ──
   let startPlat = { x: 0, y: 400, w: 350, h: 50 };
@@ -158,57 +208,65 @@ function generateLevel() {
 
   let curX = startPlat.x + startPlat.w;
   let curY = startPlat.y;
-  let lastEnemyX   = -500;  // track spacing between enemies (min 400px apart)
-  let lastMovingX  = -500;  // min 300px between moving platforms
+  let lastEnemyX = -500; // track spacing between enemies (min 400px apart)
+  let lastMovingX = -500; // min 300px between moving platforms
 
   while (curX < WORLD_W - 300) {
     // Determine which zone we're in
     let zoneIdx = 0;
     for (let z = ZONE_BOUNDARIES.length - 2; z >= 0; z--) {
-      if (curX >= ZONE_BOUNDARIES[z]) { zoneIdx = z; break; }
+      if (curX >= ZONE_BOUNDARIES[z]) {
+        zoneIdx = z;
+        break;
+      }
     }
     let cfg = ZONE_CONFIGS[min(zoneIdx, ZONE_CONFIGS.length - 1)];
 
     // ── Decide: static platform or moving platform? ──
-    let useMoving = random() < cfg.movingChance && (curX - lastMovingX) > 300;
+    let useMoving = random() < cfg.movingChance && curX - lastMovingX > 300;
 
     if (useMoving) {
       // Place a moving platform to bridge a gap
       let gap = random(cfg.minGap + 20, cfg.maxGap + 40); // moving plats bridge wider gaps
       gap = min(gap, SAFE_GAP + 20); // but not impossibly wide
 
-      let mpX = curX + gap * 0.3;  // start position within the gap area
+      let mpX = curX + gap * 0.3; // start position within the gap area
       let mpY = constrain(curY + random(-40, 30), cfg.minY, cfg.maxY);
       let mpW = random(65, 90);
 
       // Ensure reachable: height change from curY
-      let dy = curY - mpY;  // positive = platform is higher
+      let dy = curY - mpY; // positive = platform is higher
       if (dy > MAX_JUMP_H - 20) mpY = curY - MAX_JUMP_H + 25;
       mpY = constrain(mpY, cfg.minY, cfg.maxY);
 
-      let axis  = random() < 0.5 ? "x" : "y";
+      let axis = random() < 0.5 ? "x" : "y";
       let range = axis === "x" ? random(60, 110) : random(50, 80);
       let speed = random(0.6, 1.0 + zoneIdx * 0.3);
 
       movingPlatforms.push({
-        x: mpX, y: mpY, w: mpW, h: 20,
-        axis: axis, speed: speed, range: range,
+        x: mpX,
+        y: mpY,
+        w: mpW,
+        h: 20,
+        axis: axis,
+        speed: speed,
+        range: range,
         origin: axis === "x" ? mpX : mpY,
       });
 
       curX = mpX + mpW + random(cfg.minGap * 0.5, cfg.minGap);
       curY = mpY;
       lastMovingX = mpX;
-
     } else {
       // ── Static platform ──
       let gap = random(cfg.minGap, cfg.maxGap);
       let platW = random(cfg.minW, cfg.maxW);
 
       // Decide if this platform gets an enemy BEFORE finalising width
-      let wantsEnemy = cfg.enemyChance > 0 &&
-                       (curX + gap - lastEnemyX) > 400 &&
-                       random() < cfg.enemyChance;
+      let wantsEnemy =
+        cfg.enemyChance > 0 &&
+        curX + gap - lastEnemyX > 400 &&
+        random() < cfg.enemyChance;
 
       // If an enemy will spawn, boost the platform width so there's room
       if (wantsEnemy && cfg.enemyPlatW > 0) {
@@ -238,27 +296,40 @@ function generateLevel() {
 
       // ── Place enemy: patrol edge-to-edge of the platform ──
       if (wantsEnemy) {
-        let eW = 22, eH = 30;
+        let eW = 22,
+          eH = 30;
         // Edge-to-edge patrol: enemy walks from platform left edge to right edge
-        let leftBound  = platX;
+        let leftBound = platX;
         let rightBound = platX + platW - eW;
 
         if (rightBound - leftBound >= 30) {
           let eSpeed = random(cfg.eSpeedMin, cfg.eSpeedMax);
           enemies.push({
-            x: leftBound, y: newY - eH, w: eW, h: eH,
-            speed: eSpeed, dir: 1,
-            leftBound: leftBound, rightBound: rightBound,
-            startX: leftBound, startDir: 1,
+            x: leftBound,
+            y: newY - eH,
+            w: eW,
+            h: eH,
+            speed: eSpeed,
+            dir: 1,
+            leftBound: leftBound,
+            rightBound: rightBound,
+            startX: leftBound,
+            startDir: 1,
           });
           lastEnemyX = platX;
         }
       }
 
       // ── Place spikes on platform (only if no enemy) ──
-      if (!wantsEnemy && cfg.spikeChance > 0 && random() < cfg.spikeChance && platW >= 50) {
+      if (
+        !wantsEnemy &&
+        cfg.spikeChance > 0 &&
+        random() < cfg.spikeChance &&
+        platW >= 50
+      ) {
         let spikeCount = floor(random(1, min(4, platW / SPIKE_W)));
-        let spikeStartX = platX + random(8, max(10, platW - spikeCount * SPIKE_W - 8));
+        let spikeStartX =
+          platX + random(8, max(10, platW - spikeCount * SPIKE_W - 8));
         for (let s = 0; s < spikeCount; s++) {
           let sx = spikeStartX + s * SPIKE_W;
           if (sx + SPIKE_W <= platX + platW) {
@@ -272,7 +343,10 @@ function generateLevel() {
         let laserY = newY - random(40, 80);
         laserY = constrain(laserY, 60, 380);
         lasers.push({
-          x: platX - 10, y: laserY, w: platW + 20, h: 4,
+          x: platX - 10,
+          y: laserY,
+          w: platW + 20,
+          h: 4,
           phase: random(LASER_CYCLE),
         });
       }
@@ -344,15 +418,21 @@ function initParticles() {
   motes = [];
   for (let i = 0; i < RAIN_COUNT; i++) {
     rain.push({
-      x: random(width + 40), y: random(-20, height),
-      speed: random(5, 9), len: random(12, 22), alpha: random(15, 40),
+      x: random(width + 40),
+      y: random(-20, height),
+      speed: random(5, 9),
+      len: random(12, 22),
+      alpha: random(15, 40),
     });
   }
   for (let i = 0; i < MOTE_COUNT; i++) {
     motes.push({
-      x: random(width), y: random(height),
-      vx: random(-0.3, 0.3), vy: random(-0.6, -0.15),
-      size: random(1.5, 3), alpha: random(60, 160),
+      x: random(width),
+      y: random(height),
+      vx: random(-0.3, 0.3),
+      vy: random(-0.6, -0.15),
+      size: random(1.5, 3),
+      alpha: random(60, 160),
       pink: random() > 0.6,
     });
   }
@@ -363,8 +443,14 @@ function initParticles() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function draw() {
-  if (gameState === "start") { drawStartScreen(); return; }
-  if (gameState === "win")   { drawWinScreen();   return; }
+  if (gameState === "start") {
+    drawStartScreen();
+    return;
+  }
+  if (gameState === "win") {
+    drawWinScreen();
+    return;
+  }
 
   if (gameState === "winning") {
     winTimer++;
@@ -385,8 +471,8 @@ function draw() {
 
     let portalSX = goal.x + goal.w / 2 - camX;
     let portalSY = goal.y + goal.h / 2;
-    let maxR  = dist(0, 0, width, height);
-    let r     = map(winTimer, 0, 28, 0, maxR * 1.1);
+    let maxR = dist(0, 0, width, height);
+    let r = map(winTimer, 0, 28, 0, maxR * 1.1);
     let alpha = winTimer < 18 ? map(winTimer, 0, 18, 0, 230) : 230;
     noStroke();
     fill(0, 210, 255, constrain(alpha, 0, 255));
@@ -403,7 +489,8 @@ function draw() {
   if (gameState === "intro") {
     introTimer++;
     drawIntroScene();
-    if (introTimer >= INTRO_NORMAL_F + INTRO_SHAKE_F + INTRO_FLASH_F) gameState = "play";
+    if (introTimer >= INTRO_NORMAL_F + INTRO_SHAKE_F + INTRO_FLASH_F)
+      gameState = "play";
     return;
   }
 
@@ -413,7 +500,11 @@ function draw() {
   updateDash();
   checkEnemyCollision();
   checkTrapCollision();
-  if (overlaps(player, goal)) { gameState = "winning"; winTimer = 0; return; }
+  if (overlaps(player, goal)) {
+    gameState = "winning";
+    winTimer = 0;
+    return;
+  }
 
   if (deathShakeTimer > 0) deathShakeTimer--;
   if (deathFlashTimer > 0) deathFlashTimer--;
@@ -422,7 +513,8 @@ function draw() {
   drawParallax(true);
 
   push();
-  let dsx = 0, dsy = 0;
+  let dsx = 0,
+    dsy = 0;
   if (deathShakeTimer > 0) {
     let mag = map(deathShakeTimer, 0, DEATH_SHAKE_FRAMES, 0, 8);
     dsx = random(-mag, mag);
@@ -504,7 +596,11 @@ function drawStartScreen() {
 
   fill(55, 50, 75);
   textSize(11);
-  text("WASD / ARROWS  MOVE + JUMP      F  FOCUS      SHIFT  DASH", width / 2, height / 2 + 30);
+  text(
+    "WASD / ARROWS  MOVE + JUMP      F  FOCUS      SHIFT  DASH",
+    width / 2,
+    height / 2 + 30,
+  );
 
   if (sin(frameCount * 0.07) > 0) {
     fill(0, 255, 240);
@@ -519,12 +615,13 @@ function drawStartScreen() {
 function drawIntroScene() {
   let shakeEnd = INTRO_NORMAL_F + INTRO_SHAKE_F;
   let flashEnd = shakeEnd + INTRO_FLASH_F;
-  let inShake  = introTimer >= INTRO_NORMAL_F && introTimer < shakeEnd;
-  let inFlash  = introTimer >= shakeEnd;
+  let inShake = introTimer >= INTRO_NORMAL_F && introTimer < shakeEnd;
+  let inFlash = introTimer >= shakeEnd;
 
-  let sx = 0, sy = 0;
+  let sx = 0,
+    sy = 0;
   if (inShake) {
-    let t   = (introTimer - INTRO_NORMAL_F) / INTRO_SHAKE_F;
+    let t = (introTimer - INTRO_NORMAL_F) / INTRO_SHAKE_F;
     let mag = lerp(11, 0, t);
     sx = random(-mag, mag);
     sy = random(-mag, mag);
@@ -570,7 +667,8 @@ function drawWinScreen() {
   updateParticles();
   drawParticles();
 
-  let pcx = width / 2, pcy = 218;
+  let pcx = width / 2,
+    pcy = 218;
   drawPortalVFX(pcx, pcy, 52, 82, 1.0);
 
   // Jamie silhouette inside portal
@@ -636,13 +734,13 @@ function updateFocus() {
   let fHeld = keyIsDown(70);
 
   if (fHeld && !prevFocusKey && focusCooldown === 0) {
-    focusActive     = true;
-    focusPulseOn    = true;
-    focusPulseR     = 0;
+    focusActive = true;
+    focusPulseOn = true;
+    focusPulseR = 0;
     focusFlashTimer = FOCUS_FLASH_FRAMES;
   }
   if (!fHeld && focusActive) {
-    focusActive   = false;
+    focusActive = false;
     focusCooldown = FOCUS_COOLDOWN_FRAMES;
   }
 
@@ -664,20 +762,31 @@ function getAllPlatforms() {
 }
 
 function updatePlayer() {
-  let speed = (gameState === "play" && focusActive) ? MOVE_SPEED * 0.3 : MOVE_SPEED;
+  let speed =
+    gameState === "play" && focusActive ? MOVE_SPEED * 0.3 : MOVE_SPEED;
 
   // During dash, override horizontal velocity
   if (dashTimer > 0) {
     player.vx = DASH_SPEED * dashDir;
   } else {
     player.vx = 0;
-    if (keyIsDown(LEFT_ARROW)  || keyIsDown(65))  { player.vx = -speed; playerFacing = -1; }
-    if (keyIsDown(RIGHT_ARROW) || keyIsDown(68))  { player.vx =  speed; playerFacing =  1; }
+    if (keyIsDown(LEFT_ARROW) || keyIsDown(65)) {
+      player.vx = -speed;
+      playerFacing = -1;
+    }
+    if (keyIsDown(RIGHT_ARROW) || keyIsDown(68)) {
+      player.vx = speed;
+      playerFacing = 1;
+    }
   }
 
   // Afterimage trail (more frequent during dash)
   let trailRate = dashTimer > 0 ? 1 : AFTERIMAGE_SPACING;
-  if (gameState === "play" && abs(player.vx) > 0.5 && frameCount % trailRate === 0) {
+  if (
+    gameState === "play" &&
+    abs(player.vx) > 0.5 &&
+    frameCount % trailRate === 0
+  ) {
     afterimages.push({ x: player.x, y: player.y, age: 0 });
     if (afterimages.length > AFTERIMAGE_COUNT) afterimages.shift();
   }
@@ -708,7 +817,7 @@ function updatePlayer() {
   player.x += player.vx;
   for (let p of allPlats) {
     if (overlaps(player, p)) {
-      player.x  = player.vx > 0 ? p.x - player.w : p.x + p.w;
+      player.x = player.vx > 0 ? p.x - player.w : p.x + p.w;
       player.vx = 0;
     }
   }
@@ -718,8 +827,12 @@ function updatePlayer() {
   player.y += player.vy;
   for (let p of allPlats) {
     if (overlaps(player, p)) {
-      if (player.vy > 0) { player.y = p.y - player.h; player.onGround = true; }
-      else               { player.y = p.y + p.h; }
+      if (player.vy > 0) {
+        player.y = p.y - player.h;
+        player.onGround = true;
+      } else {
+        player.y = p.y + p.h;
+      }
       player.vy = 0;
     }
   }
@@ -732,7 +845,8 @@ function updatePlayer() {
 function updateMovingPlatforms() {
   for (let mp of movingPlatforms) {
     let t = frameCount * mp.speed * 0.02;
-    let prevX = mp.x, prevY = mp.y;
+    let prevX = mp.x,
+      prevY = mp.y;
     if (mp.axis === "x") {
       mp.x = mp.origin + sin(t) * mp.range;
     } else {
@@ -745,7 +859,7 @@ function updateMovingPlatforms() {
   // Stick player to moving platform they're standing on
   for (let mp of movingPlatforms) {
     let feet = { x: player.x, y: player.y + player.h, w: player.w, h: 4 };
-    let top  = { x: mp.x, y: mp.y - 2, w: mp.w, h: 6 };
+    let top = { x: mp.x, y: mp.y - 2, w: mp.w, h: 6 };
     if (player.onGround && overlaps(feet, top)) {
       player.x += mp.dx;
       player.y += mp.dy;
@@ -757,8 +871,14 @@ function updateMovingPlatforms() {
 function updateEnemies() {
   for (let e of enemies) {
     e.x += e.speed * e.dir;
-    if (e.x >= e.rightBound) { e.x = e.rightBound; e.dir = -1; }
-    if (e.x <= e.leftBound)  { e.x = e.leftBound;  e.dir =  1; }
+    if (e.x >= e.rightBound) {
+      e.x = e.rightBound;
+      e.dir = -1;
+    }
+    if (e.x <= e.leftBound) {
+      e.x = e.leftBound;
+      e.dir = 1;
+    }
   }
 }
 
@@ -779,13 +899,19 @@ function updateDash() {
 function checkTrapCollision() {
   // Spikes — always lethal
   for (let s of spikes) {
-    if (overlaps(player, s)) { triggerDeath(); return; }
+    if (overlaps(player, s)) {
+      triggerDeath();
+      return;
+    }
   }
   // Lasers — lethal only when active
   for (let l of lasers) {
     let cycle = (frameCount + l.phase) % LASER_CYCLE;
     if (cycle < LASER_CYCLE * LASER_ON_FRAC) {
-      if (overlaps(player, l)) { triggerDeath(); return; }
+      if (overlaps(player, l)) {
+        triggerDeath();
+        return;
+      }
     }
   }
 }
@@ -794,27 +920,30 @@ function triggerDeath() {
   deathCount++;
   deathShakeTimer = DEATH_SHAKE_FRAMES;
   deathFlashTimer = DEATH_FLASH_FRAMES;
-  player.x = 60; player.y = 360;
-  player.vx = 0; player.vy = 0;
+  player.x = 60;
+  player.y = 360;
+  player.vx = 0;
+  player.vy = 0;
 
-  focusActive   = false;
-  focusFade     = 0;
+  focusActive = false;
+  focusFade = 0;
   focusCooldown = 0;
-  prevFocusKey  = false;
-  focusPulseOn  = false;
-  focusPulseR   = 0;
+  prevFocusKey = false;
+  focusPulseOn = false;
+  focusPulseR = 0;
 
-  afterimages  = [];
-  coyoteTimer  = 0;
-  wasOnGround  = false;
-  jumpHeld     = false;
-  dashTimer    = 0;
+  afterimages = [];
+  coyoteTimer = 0;
+  wasOnGround = false;
+  jumpHeld = false;
+  dashTimer = 0;
   dashCooldown = 0;
 }
 
 function overlaps(a, b) {
-  return a.x < b.x + b.w && a.x + a.w > b.x &&
-         a.y < b.y + b.h && a.y + a.h > b.y;
+  return (
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -822,9 +951,16 @@ function overlaps(a, b) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function keyPressed() {
-  if (gameState === "start") { gameState = "intro"; introTimer = 0; return; }
+  if (gameState === "start") {
+    gameState = "intro";
+    introTimer = 0;
+    return;
+  }
 
-  if ((keyCode === UP_ARROW || keyCode === 87) && (player.onGround || (wasOnGround && coyoteTimer > 0))) {
+  if (
+    (keyCode === UP_ARROW || keyCode === 87) &&
+    (player.onGround || (wasOnGround && coyoteTimer > 0))
+  ) {
     player.vy = JUMP_FORCE;
     player.onGround = false;
     wasOnGround = false;
@@ -833,10 +969,15 @@ function keyPressed() {
   }
 
   // Dash on SHIFT
-  if (keyCode === SHIFT && dashCooldown === 0 && dashTimer === 0 && gameState === "play") {
-    dashTimer    = DASH_FRAMES;
+  if (
+    keyCode === SHIFT &&
+    dashCooldown === 0 &&
+    dashTimer === 0 &&
+    gameState === "play"
+  ) {
+    dashTimer = DASH_FRAMES;
     dashCooldown = DASH_COOLDOWN;
-    dashDir      = playerFacing;
+    dashDir = playerFacing;
   }
 }
 
@@ -847,9 +988,13 @@ function keyReleased() {
 }
 
 function mousePressed() {
-  if (gameState === "win" &&
-      mouseX >= WIN_BTN.x && mouseX <= WIN_BTN.x + WIN_BTN.w &&
-      mouseY >= WIN_BTN.y && mouseY <= WIN_BTN.y + WIN_BTN.h) {
+  if (
+    gameState === "win" &&
+    mouseX >= WIN_BTN.x &&
+    mouseX <= WIN_BTN.x + WIN_BTN.w &&
+    mouseY >= WIN_BTN.y &&
+    mouseY <= WIN_BTN.y + WIN_BTN.h
+  ) {
     resetGame();
   }
 }
@@ -867,7 +1012,7 @@ function updateCamera() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawParallax(lowVis) {
-  let dim = lowVis ? 0.30 : 0.80;
+  let dim = lowVis ? 0.3 : 0.8;
 
   let off1 = camX * 0.08;
   for (let b of bgLayer1) {
@@ -900,7 +1045,10 @@ function updateParticles() {
   for (let r of rain) {
     r.y += r.speed;
     r.x -= r.speed * 0.12;
-    if (r.y > height + 20) { r.y = random(-30, -10); r.x = random(-10, width + 40); }
+    if (r.y > height + 20) {
+      r.y = random(-30, -10);
+      r.x = random(-10, width + 40);
+    }
     if (r.x < -30) r.x = width + random(10, 30);
   }
   for (let m of motes) {
@@ -958,8 +1106,8 @@ function drawGlareZones() {
     }
 
     let centreX = gz.x + gz.w / 2;
-    let bandW   = gz.w * 0.3;
-    let bPulse  = 0.4 + 0.6 * sin(t * 0.06 + gz.x * 0.01);
+    let bandW = gz.w * 0.3;
+    let bPulse = 0.4 + 0.6 * sin(t * 0.06 + gz.x * 0.01);
     fill(255, 255, 240, constrain(bPulse * 25 * gz.intensity, 0, 255));
     rect(centreX - bandW / 2, 0, bandW, height);
   }
@@ -1040,7 +1188,10 @@ function drawPlatforms() {
   let pcy = player.y + player.h / 2;
   for (let p of platforms) {
     let hi = 0;
-    if (focusFade > 0 && distToRect(pcx, pcy, p.x, p.y, p.w, p.h) <= FOCUS_RADIUS) {
+    if (
+      focusFade > 0 &&
+      distToRect(pcx, pcy, p.x, p.y, p.w, p.h) <= FOCUS_RADIUS
+    ) {
       hi = focusFade;
     }
     drawPlatformNeon(p, lerp(0.18, 1.0, hi), hi);
@@ -1053,7 +1204,10 @@ function drawMovingPlatforms() {
   let pcy = player.y + player.h / 2;
   for (let mp of movingPlatforms) {
     let hi = 0;
-    if (focusFade > 0 && distToRect(pcx, pcy, mp.x, mp.y, mp.w, mp.h) <= FOCUS_RADIUS) {
+    if (
+      focusFade > 0 &&
+      distToRect(pcx, pcy, mp.x, mp.y, mp.w, mp.h) <= FOCUS_RADIUS
+    ) {
       hi = focusFade;
     }
     drawMovingPlatformNeon(mp, lerp(0.18, 1.0, hi), hi);
@@ -1070,7 +1224,11 @@ function drawAfterimages() {
     let ai = afterimages[i];
     ai.age++;
     let fade = map(ai.age, 0, 20, 50, 0);
-    if (fade <= 0) { afterimages.splice(i, 1); i--; continue; }
+    if (fade <= 0) {
+      afterimages.splice(i, 1);
+      i--;
+      continue;
+    }
 
     // Ghost sprite afterimage
     if (jamieIdle.length > 0) {
@@ -1092,7 +1250,10 @@ function drawAfterimages() {
 }
 
 function drawPlayer() {
-  let px = player.x, py = player.y, pw = player.w, ph = player.h;
+  let px = player.x,
+    py = player.y,
+    pw = player.w,
+    ph = player.h;
   let cx = px + pw / 2;
   let cy = py + ph / 2;
   noStroke();
@@ -1144,7 +1305,10 @@ function drawPlayer() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawEnemyNeon(e, a, hi) {
-  let ex = e.x, ey = e.y, ew = e.w, eh = e.h;
+  let ex = e.x,
+    ey = e.y,
+    ew = e.w,
+    eh = e.h;
   noStroke();
 
   fill(255, 40, 100, 28 * a);
@@ -1175,10 +1339,14 @@ function drawEnemiesFull() {
 }
 
 function drawEnemies() {
-  let pcx = player.x + player.w / 2, pcy = player.y + player.h / 2;
+  let pcx = player.x + player.w / 2,
+    pcy = player.y + player.h / 2;
   for (let e of enemies) {
     let hi = 0;
-    if (focusFade > 0 && distToRect(pcx, pcy, e.x, e.y, e.w, e.h) <= FOCUS_RADIUS) {
+    if (
+      focusFade > 0 &&
+      distToRect(pcx, pcy, e.x, e.y, e.w, e.h) <= FOCUS_RADIUS
+    ) {
       hi = focusFade;
     }
     drawEnemyNeon(e, lerp(0.18, 1.0, hi), hi);
@@ -1190,10 +1358,14 @@ function drawEnemies() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawSpikes() {
-  let pcx = player.x + player.w / 2, pcy = player.y + player.h / 2;
+  let pcx = player.x + player.w / 2,
+    pcy = player.y + player.h / 2;
   for (let s of spikes) {
     let hi = 0;
-    if (focusFade > 0 && distToRect(pcx, pcy, s.x, s.y, s.w, s.h) <= FOCUS_RADIUS) {
+    if (
+      focusFade > 0 &&
+      distToRect(pcx, pcy, s.x, s.y, s.w, s.h) <= FOCUS_RADIUS
+    ) {
       hi = focusFade;
     }
     let a = lerp(0.18, 1.0, hi);
@@ -1223,13 +1395,17 @@ function drawSpikes() {
 }
 
 function drawLasers() {
-  let pcx = player.x + player.w / 2, pcy = player.y + player.h / 2;
+  let pcx = player.x + player.w / 2,
+    pcy = player.y + player.h / 2;
   for (let l of lasers) {
     let cycle = (frameCount + l.phase) % LASER_CYCLE;
     let isOn = cycle < LASER_CYCLE * LASER_ON_FRAC;
 
     let hi = 0;
-    if (focusFade > 0 && distToRect(pcx, pcy, l.x, l.y, l.w, l.h) <= FOCUS_RADIUS) {
+    if (
+      focusFade > 0 &&
+      distToRect(pcx, pcy, l.x, l.y, l.w, l.h) <= FOCUS_RADIUS
+    ) {
       hi = focusFade;
     }
     let vis = lerp(0.18, 1.0, hi);
@@ -1284,10 +1460,18 @@ function drawDangerWarning() {
     let a = intensity * pulse * 55;
 
     let ctx = drawingContext;
-    let cx = width / 2, cy = height / 2;
-    let g = ctx.createRadialGradient(cx, cy, height * 0.25, cx, cy, height * 0.75);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(1, 'rgba(255,20,60,' + (a / 255).toFixed(3) + ')');
+    let cx = width / 2,
+      cy = height / 2;
+    let g = ctx.createRadialGradient(
+      cx,
+      cy,
+      height * 0.25,
+      cx,
+      cy,
+      height * 0.75,
+    );
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(255,20,60," + (a / 255).toFixed(3) + ")");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, width, height);
   }
@@ -1306,15 +1490,15 @@ function drawPortalVFX(cx, cy, rx, ry, intensity) {
     ellipse(cx, cy, (rx + 18 * i) * 2, (ry + 11 * i) * 2);
   }
 
-  let drift  = 0.5 + 0.5 * sin(t * 0.04);
-  let fieldR = lerp(0,   80,  drift);
-  let fieldG = lerp(200, 40,  drift);
+  let drift = 0.5 + 0.5 * sin(t * 0.04);
+  let fieldR = lerp(0, 80, drift);
+  let fieldG = lerp(200, 40, drift);
   let fieldB = lerp(220, 255, drift);
   fill(fieldR, fieldG, fieldB, 40 * intensity);
   ellipse(cx, cy, rx * 2, ry * 2);
 
   for (let ly = cy - ry + 5; ly < cy + ry - 3; ly += 7) {
-    let span    = sqrt(max(0, 1 - sq((ly - cy) / ry))) * rx * 0.88;
+    let span = sqrt(max(0, 1 - sq((ly - cy) / ry))) * rx * 0.88;
     let flicker = 0.4 + 0.6 * sin(t * 0.13 + ly * 0.22);
     stroke(0, 255, 240, 28 * flicker * intensity);
     strokeWeight(1);
@@ -1323,7 +1507,7 @@ function drawPortalVFX(cx, cy, rx, ry, intensity) {
   noStroke();
 
   for (let i = 0; i < 5; i++) {
-    let angle = t * 0.038 + i * TWO_PI / 5;
+    let angle = t * 0.038 + (i * TWO_PI) / 5;
     let ox = cx + cos(angle) * (rx + 4);
     let oy = cy + sin(angle) * (ry + 3);
     fill(0, 255, 240, 190 * intensity);
@@ -1341,10 +1525,10 @@ function drawPortalVFX(cx, cy, rx, ry, intensity) {
   ellipse(cx, cy, (rx + 4) * 2, (ry + 3) * 2);
 
   for (let step = 0; step < 5; step++) {
-    let ly   = cy - ry - 4 - step * 7;
+    let ly = cy - ry - 4 - step * 7;
     let prog = step / 4;
-    let hw   = lerp(rx * 0.28, 0, prog);
-    let la   = lerp(55, 0, prog) * intensity;
+    let hw = lerp(rx * 0.28, 0, prog);
+    let la = lerp(55, 0, prog) * intensity;
     stroke(0, 255, 240, la);
     strokeWeight(1);
     line(cx - hw, ly, cx + hw, ly);
@@ -1358,7 +1542,9 @@ function drawPortalVFX(cx, cy, rx, ry, intensity) {
   noStroke();
 }
 
-function drawGoalFull() { drawGoalNeon(1.0, 0); }
+function drawGoalFull() {
+  drawGoalNeon(1.0, 0);
+}
 
 function drawGoalNeon(a, hi) {
   let cx = goal.x + goal.w / 2;
@@ -1378,9 +1564,13 @@ function drawGoalNeon(a, hi) {
 }
 
 function drawGoal() {
-  let pcx = player.x + player.w / 2, pcy = player.y + player.h / 2;
+  let pcx = player.x + player.w / 2,
+    pcy = player.y + player.h / 2;
   let hi = 0;
-  if (focusFade > 0 && distToRect(pcx, pcy, goal.x, goal.y, goal.w, goal.h) <= FOCUS_RADIUS) {
+  if (
+    focusFade > 0 &&
+    distToRect(pcx, pcy, goal.x, goal.y, goal.w, goal.h) <= FOCUS_RADIUS
+  ) {
     hi = focusFade;
   }
   drawGoalNeon(lerp(0.18, 1.0, hi), hi);
@@ -1394,9 +1584,12 @@ function drawFocusPulse() {
   if (!focusPulseOn) return;
 
   focusPulseR += 10;
-  let maxR  = FOCUS_RADIUS + 30;
+  let maxR = FOCUS_RADIUS + 30;
   let alpha = map(focusPulseR, 0, maxR, 200, 0);
-  if (alpha <= 0) { focusPulseOn = false; return; }
+  if (alpha <= 0) {
+    focusPulseOn = false;
+    return;
+  }
 
   let cx = player.x + player.w / 2;
   let cy = player.y + player.h / 2;
@@ -1448,7 +1641,9 @@ function drawDeathCounter() {
     fill(0, 255, 240, 40);
     rect(12, height - 28, 60, 18, 3);
     fill(0, 255, 240, 200);
-    textSize(10); textStyle(BOLD); textAlign(LEFT, TOP);
+    textSize(10);
+    textStyle(BOLD);
+    textAlign(LEFT, TOP);
     text("DASH RDY", 18, height - 25);
   } else {
     fill(60, 50, 80, 40);
@@ -1457,7 +1652,9 @@ function drawDeathCounter() {
     fill(0, 255, 240, 80);
     rect(12, height - 28, 60 * prog, 18, 3);
     fill(120, 100, 160, 160);
-    textSize(10); textStyle(BOLD); textAlign(LEFT, TOP);
+    textSize(10);
+    textStyle(BOLD);
+    textAlign(LEFT, TOP);
     text("DASH", 18, height - 25);
   }
   textStyle(NORMAL);
@@ -1485,7 +1682,7 @@ function drawDeathCounter() {
 
 function drawScanlines() {
   let ctx = drawingContext;
-  ctx.fillStyle = 'rgba(0,0,0,0.055)';
+  ctx.fillStyle = "rgba(0,0,0,0.055)";
   for (let y = 0; y < height; y += 3) {
     ctx.fillRect(0, y, width, 1);
   }
@@ -1493,11 +1690,12 @@ function drawScanlines() {
 
 function drawVignette() {
   let ctx = drawingContext;
-  let cx = width / 2, cy = height / 2;
+  let cx = width / 2,
+    cy = height / 2;
   let g = ctx.createRadialGradient(cx, cy, height * 0.1, cx, cy, height * 0.82);
-  g.addColorStop(0,   'rgba(0,0,0,0)');
-  g.addColorStop(0.6, 'rgba(0,0,0,0.45)');
-  g.addColorStop(1,   'rgba(0,0,0,0.9)');
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(0.6, "rgba(0,0,0,0.45)");
+  g.addColorStop(1, "rgba(0,0,0,0.9)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, width, height);
 }
@@ -1507,8 +1705,10 @@ function drawVignette() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function resetGame() {
-  player.x = 60; player.y = 360;
-  player.vx = 0; player.vy = 0;
+  player.x = 60;
+  player.y = 360;
+  player.vx = 0;
+  player.vy = 0;
   player.onGround = false;
   playerFacing = 1;
 
@@ -1516,27 +1716,27 @@ function resetGame() {
   generateLevel();
   initParallax();
 
-  camX            = 0;
-  focusActive     = false;
-  focusFade       = 0;
-  focusCooldown   = 0;
-  prevFocusKey    = false;
-  focusPulseOn    = false;
-  focusPulseR     = 0;
+  camX = 0;
+  focusActive = false;
+  focusFade = 0;
+  focusCooldown = 0;
+  prevFocusKey = false;
+  focusPulseOn = false;
+  focusPulseR = 0;
   focusFlashTimer = 0;
-  deathCount      = 0;
+  deathCount = 0;
   deathShakeTimer = 0;
   deathFlashTimer = 0;
-  afterimages     = [];
-  coyoteTimer     = 0;
-  wasOnGround     = false;
-  jumpHeld        = false;
-  dashTimer       = 0;
-  dashCooldown    = 0;
+  afterimages = [];
+  coyoteTimer = 0;
+  wasOnGround = false;
+  jumpHeld = false;
+  dashTimer = 0;
+  dashCooldown = 0;
 
-  gameState  = "start";
+  gameState = "start";
   introTimer = 0;
-  winTimer   = 0;
+  winTimer = 0;
 }
 
 function distToRect(px, py, rx, ry, rw, rh) {
