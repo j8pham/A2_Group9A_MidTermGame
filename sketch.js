@@ -10,8 +10,9 @@ const JUMP_FORCE = -15;
 const TERM_VEL   = 22;
 const WORLD_W    = 4800;
 
-const FOCUS_RADIUS      = 280;
-const FOCUS_FADE_FRAMES = 30;
+const FOCUS_RADIUS         = 280;
+const FOCUS_FADE_FRAMES    = 90;   // 1.5s fade on release
+const FOCUS_COOLDOWN_FRAMES = 210; // 3.5s cooldown before reuse
 
 const INTRO_NORMAL_F = 60;
 const INTRO_SHAKE_F  = 30;
@@ -204,6 +205,8 @@ let prevFocusKey    = false;
 let focusPulseR     = 0;
 let focusPulseOn    = false;
 let focusFlashTimer = 0;
+let focusCooldown   = 0;
+let focusWasUsed    = false; // tracks if echolocation was used (for cooldown trigger)
 
 let deathCount      = 0;
 let deathShakeTimer = 0;
@@ -588,7 +591,17 @@ function drawWinScreen() {
 
 function updateFocus() {
   let fHeld    = keyIsDown(70);
-  let canFocus = player.onGround && abs(player.vx) < 0.5;
+  let canFocus = player.onGround && abs(player.vx) < 0.5 && focusCooldown <= 0;
+
+  // Cooldown tick
+  if (focusCooldown > 0) {
+    focusCooldown--;
+    if (focusCooldown === 0 && focusWasUsed) {
+      playSfx(sfxDoubleJump, 0.25); // "echolocation ready" chime
+      focusWasUsed = false;
+    }
+  }
+
   if (fHeld && canFocus) {
     if (!focusActive) {
       focusPulseOn    = true;
@@ -598,6 +611,11 @@ function updateFocus() {
     }
     focusActive = true;
   } else {
+    // Start cooldown when releasing after use
+    if (focusActive && !fHeld) {
+      focusCooldown = FOCUS_COOLDOWN_FRAMES;
+      focusWasUsed  = true;
+    }
     focusActive = false;
   }
   focusFade    = focusActive ? 1.0 : max(0, focusFade - 1 / FOCUS_FADE_FRAMES);
@@ -609,7 +627,7 @@ function updateFocus() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function updatePlayer() {
-  let speed = MOVE_SPEED;
+  let speed = focusActive ? MOVE_SPEED * 0.3 : MOVE_SPEED;
 
   player.vx = 0;
   if (keyIsDown(LEFT_ARROW)  || keyIsDown(65)) { player.vx = -speed; playerFacing = -1; }
@@ -726,6 +744,7 @@ function triggerDeath() {
   player.vx = 0; player.vy = 0;
   focusActive = false; focusFade = 0; prevFocusKey = false;
   focusPulseOn = false; focusPulseR = 0;
+  focusCooldown = 0; focusWasUsed = false;
   afterimages = []; coyoteTimer = 0; wasOnGround = false;
   jumpHeld = false; canDoubleJump = false;
   darkWallX = -200; darkWallActive = false;
@@ -1171,12 +1190,21 @@ function drawFocusPulse() {
 function drawFocusIndicator() {
   let cx       = player.x + player.w / 2;
   let cy       = player.y + player.h + 12;
-  let canFocus = player.onGround && abs(player.vx) < 0.5;
+  let canFocus = player.onGround && abs(player.vx) < 0.5 && focusCooldown <= 0;
   noStroke();
   if (focusActive) {
     let pulse = 0.7 + 0.3 * sin(frameCount * 0.15);
     fill(0, 255, 240, 50 * pulse); ellipse(cx, cy, 18, 18);
     fill(0, 255, 240); ellipse(cx, cy, 7, 7);
+  } else if (focusCooldown > 0) {
+    // Cooldown arc indicator
+    let progress = 1 - focusCooldown / FOCUS_COOLDOWN_FRAMES;
+    fill(45, 40, 60, 120); ellipse(cx, cy, 14, 14);
+    // Draw arc showing cooldown progress
+    stroke(0, 255, 240, 140); strokeWeight(2); noFill();
+    arc(cx, cy, 14, 14, -HALF_PI, -HALF_PI + TWO_PI * progress);
+    noStroke();
+    fill(80, 70, 100, 180); ellipse(cx, cy, 4, 4);
   } else if (canFocus) {
     fill(0, 255, 240, 35); ellipse(cx, cy, 14, 14);
     fill(0, 255, 240);     ellipse(cx, cy, 6, 6);
@@ -1254,6 +1282,7 @@ function resetGame() {
   camX = 0;
   focusActive = false; focusFade = 0; prevFocusKey = false;
   focusPulseOn = false; focusPulseR = 0; focusFlashTimer = 0;
+  focusCooldown = 0; focusWasUsed = false;
   deathCount = 0; deathShakeTimer = 0; deathFlashTimer = 0;
   afterimages = []; coyoteTimer = 0; wasOnGround = false;
   jumpHeld = false; canDoubleJump = false;
