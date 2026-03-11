@@ -160,17 +160,17 @@ let sfxJump, sfxDoubleJump, sfxFocus, sfxDeath, sfxGoal;
 function preload() {
   for (let i = 2; i <= 8; i++) {
     let pad = i < 10 ? "0" + i : "" + i;
-    buildingImgs.push(loadImage("assets/Single Buildings/Pixel Art Buildings-" + pad + ".png"));
+    buildingImgs.push(loadImage("assets/images/Buildings/Pixel Art Buildings-" + pad + ".png"));
   }
-  for (let i = 1; i <= 3; i++) jamieIdle.push(loadImage("assets/JAMIE/IDLE/Jamie_IDLE_" + i + ".png"));
-  for (let i = 1; i <= 4; i++) jamieRun.push(loadImage("assets/JAMIE/RUN/Jamie_RUN_" + i + ".png"));
-  for (let i = 1; i <= 5; i++) jamieJump.push(loadImage("assets/JAMIE/JUMP/Jamie_JUMP_" + i + ".png"));
-  bgMusic       = loadSound("assets/nikitakondrashev-cyberpunk-437545.mp3");
-  sfxJump       = loadSound("assets/302 sound effects/Jump.mp3");
-  sfxDoubleJump = loadSound("assets/302 sound effects/Dash.mp3");
-  sfxFocus      = loadSound("assets/302 sound effects/Focus.mp3");
-  sfxDeath      = loadSound("assets/302 sound effects/Breach(death).mp3");
-  sfxGoal       = loadSound("assets/302 sound effects/Explosion then power down.mp3");
+  for (let i = 1; i <= 3; i++) jamieIdle.push(loadImage("assets/images/JAMIE/IDLE/Jamie_IDLE_" + i + ".png"));
+  for (let i = 1; i <= 4; i++) jamieRun.push(loadImage("assets/images/JAMIE/RUN/Jamie_RUN_" + i + ".png"));
+  for (let i = 1; i <= 5; i++) jamieJump.push(loadImage("assets/images/JAMIE/JUMP/Jamie_JUMP_" + i + ".png"));
+  bgMusic       = loadSound("assets/sounds/nikitakondrashev-cyberpunk-437545.mp3");
+  sfxJump       = loadSound("assets/sounds/Jump.mp3");
+  sfxDoubleJump = loadSound("assets/sounds/Dash.mp3");
+  sfxFocus      = loadSound("assets/sounds/Focus.mp3");
+  sfxDeath      = loadSound("assets/sounds/Breach(death).mp3");
+  sfxGoal       = loadSound("assets/sounds/Explosion then power down.mp3");
 }
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
@@ -467,7 +467,7 @@ function drawStartScreen() {
 
   // Controls
   let ctrlY  = 190;
-  let startX = cx - 260;
+  let startX = cx - 213;
   drawKeyCluster(startX, ctrlY, ["W", "A", "S", "D"]);
   fill(160, 140, 210); textSize(9); textAlign(CENTER, TOP);
   text("MOVE", startX + 34, ctrlY + 48);
@@ -579,9 +579,15 @@ function drawWinScreen() {
                         : "SYSTEM BREACHES: " + deathCount, pcx, 350);
   fill(45, 42, 65); textSize(10);
   text("ACCESS NODE REACHED   //   NEURAL LINK ESTABLISHED", pcx, 368);
-  stroke(0, 255, 240, 200); strokeWeight(1); noFill(); rect(WIN_BTN.x, WIN_BTN.y, WIN_BTN.w, WIN_BTN.h);
-  noStroke(); fill(0, 255, 240); textSize(12); textStyle(BOLD);
-  text("RESTART", pcx, WIN_BTN.y + WIN_BTN.h / 2);
+  // Restart button
+  let btnPulse = 0.7 + 0.3 * sin(frameCount * 0.08);
+  noStroke(); fill(0, 255, 240, 18 * btnPulse); rect(WIN_BTN.x - 4, WIN_BTN.y - 4, WIN_BTN.w + 8, WIN_BTN.h + 8, 5);
+  fill(0, 255, 240, 35 * btnPulse); rect(WIN_BTN.x, WIN_BTN.y, WIN_BTN.w, WIN_BTN.h, 3);
+  stroke(0, 255, 240, 220 * btnPulse); strokeWeight(1.5); noFill(); rect(WIN_BTN.x, WIN_BTN.y, WIN_BTN.w, WIN_BTN.h, 3);
+  noStroke(); fill(0, 255, 240); textSize(13); textStyle(BOLD);
+  text("[ RESTART ]", pcx, WIN_BTN.y + WIN_BTN.h / 2);
+  fill(100, 90, 140, 160); textSize(9); textStyle(NORMAL);
+  text("PRESS ENTER  OR  CLICK ANYWHERE", pcx, WIN_BTN.y + WIN_BTN.h + 16);
   drawScanlines(); drawVignette();
 }
 
@@ -760,6 +766,9 @@ function overlaps(a, b) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function keyPressed() {
+  if (gameState === "win") {
+    if (keyCode === ENTER || keyCode === 82) { resetGame(); return; } // Enter or R
+  }
   if (gameState === "start") {
     if (keyCode === DOWN_ARROW || keyCode === 83) { menuSelection = (menuSelection + 1) % 2; return; }
     if (keyCode === UP_ARROW   || keyCode === 87) { menuSelection = (menuSelection + 1) % 2; return; }
@@ -793,9 +802,8 @@ function mousePressed() {
     }
     return;
   }
-  if (gameState === "win" &&
-      mouseX >= WIN_BTN.x && mouseX <= WIN_BTN.x + WIN_BTN.w &&
-      mouseY >= WIN_BTN.y && mouseY <= WIN_BTN.y + WIN_BTN.h) {
+  if (gameState === "win") {
+    // Click anywhere on win screen restarts — reliable across all scale factors
     resetGame();
   }
 }

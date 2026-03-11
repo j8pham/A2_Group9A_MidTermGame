@@ -14,5 +14,5 @@ canvas {
   left: 50%;
   transform-origin: center center;
   transform: translate(-50%, -50%) scale(1);
-  image-rendering: pixelated;
+  image-rendering: auto;
 }
