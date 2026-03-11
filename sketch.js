@@ -139,8 +139,8 @@ const LEVEL_LASERS = [
 const LEVEL_GOAL = { x: 4748, y: 316, w: 36, h: 52 };
 
 const LEVEL_CHECKPOINTS = [
-  { x: 1440, y: 312, w: 18, h: 40 },
-  { x: 3590, y: 255, w: 18, h: 40 },
+  { x: 1783, y: 258, w: 18, h: 40 }, // center of P6 (x:1720, y:298) — no enemy, no spikes
+  { x: 3663, y: 235, w: 18, h: 40 }, // center of P14 (x:3610, y:275) — no enemy, no spikes
 ];
 
 const LEVEL_VISION_PICKUP = { x: 3150, y: 262, w: 16, h: 16 };
