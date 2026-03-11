@@ -34,8 +34,14 @@ const LIGHT_SOURCES = [
 ];
 
 const GLARE_ZONES = [
-  { x: 2600, w: 600, intensity: 2.2 },
-  { x: 3800, w: 900, intensity: 3.0 },
+  { x: 700,  w: 350, intensity: 1.4 },
+  { x: 2600, w: 600, intensity: 3.0 },
+  { x: 3800, w: 900, intensity: 3.8 },
+];
+
+const DARK_ZONES = [
+  { x: 1700, w: 450, intensity: 0.72 },
+  { x: 4050, w: 350, intensity: 0.82 },
 ];
 
 const WIN_BTN = { x: 310, y: 378, w: 180, h: 40 };
@@ -131,6 +137,17 @@ const LEVEL_LASERS = [
 
 const LEVEL_GOAL = { x: 4748, y: 316, w: 36, h: 52 };
 
+const LEVEL_CHECKPOINTS = [
+  { x: 1440, y: 312, w: 18, h: 40 },
+  { x: 3590, y: 255, w: 18, h: 40 },
+];
+
+const LEVEL_VISION_PICKUP = { x: 3150, y: 262, w: 16, h: 16 };
+
+const VISION_BOOST_FRAMES = 300;
+const VISION_FADE_FRAMES  = 60;
+const DARK_WALL_SPEED     = 1.2;
+
 // ── ASSET LOADING ────────────────────────────────────────────────────────────
 let buildingImgs = [];
 let jamieIdle    = [];
@@ -165,6 +182,16 @@ let camX        = 0;
 let playerFacing = 1;
 
 let canDoubleJump = false;
+
+let checkpoints       = [];
+let activeCheckpointIdx = -1;
+let cpPulseTimers     = [];
+
+let visionPickup      = null;
+let visionBoostTimer  = 0;
+
+let darkWallX         = -200;
+let darkWallActive    = false;
 
 let gameState    = "start";
 let introTimer   = 0;
@@ -229,6 +256,13 @@ function initLevel() {
   goal            = Object.assign({}, LEVEL_GOAL);
   // Single combined array — moving platform positions update in-place
   allPlats = platforms.concat(movingPlatforms);
+  checkpoints         = LEVEL_CHECKPOINTS.map(c => Object.assign({ activated: false }, c));
+  activeCheckpointIdx = -1;
+  cpPulseTimers       = checkpoints.map(() => 0);
+  visionPickup        = Object.assign({}, LEVEL_VISION_PICKUP);
+  visionBoostTimer    = 0;
+  darkWallX           = -200;
+  darkWallActive      = false;
 }
 
 // ── Parallax generation ────────────────────────────────────────────────────────
@@ -311,6 +345,9 @@ function draw() {
   // ── PLAY ──────────────────────────────────────────────────────────────────
   updateFocus();
   updateEnemies();
+  updateDarkWall();
+  updateVisionPickup();
+  updateCheckpoints();
   checkEnemyCollision();
   checkTrapCollision();
   if (overlaps(player, goal)) { gameState = "winning"; winTimer = 0; playSfx(sfxGoal, 0.65); return; }
@@ -334,6 +371,8 @@ function draw() {
   drawPlatforms();
   drawMovingPlatforms();
   drawGoal();
+  drawCheckpoints();
+  drawVisionPickup();
   drawEnemies();
   drawSpikes();
   drawLasers();
@@ -342,6 +381,8 @@ function draw() {
   drawFocusPulse();
   drawFocusIndicator();
   pop();
+  drawDarkZones();
+  drawDarkWall();
 
   updateParticles();
   drawParticles();
@@ -435,8 +476,8 @@ function drawStartScreen() {
 
   let fX = startX + 270;
   drawKeyCap(fX, ctrlY + 10, 32, 28, "F");
-  fill(160, 140, 210); textSize(9); textAlign(CENTER, TOP);
-  text("FOCUS", fX + 16, ctrlY + 48);
+  fill(160, 140, 210); textSize(8); textAlign(CENTER, TOP);
+  text("ECHOLOCATION", fX + 16, ctrlY + 48);
 
   let spaceX = startX + 355;
   drawKeyCap(spaceX, ctrlY + 10, 70, 28, "SPACE");
@@ -675,12 +716,19 @@ function triggerDeath() {
   deathCount++;
   deathShakeTimer = DEATH_SHAKE_FRAMES;
   deathFlashTimer = DEATH_FLASH_FRAMES;
-  player.x = 60; player.y = 360;
+  if (activeCheckpointIdx >= 0) {
+    let cp = checkpoints[activeCheckpointIdx];
+    player.x = cp.x - player.w / 2;
+    player.y = cp.y - player.h;
+  } else {
+    player.x = 60; player.y = 360;
+  }
   player.vx = 0; player.vy = 0;
   focusActive = false; focusFade = 0; prevFocusKey = false;
   focusPulseOn = false; focusPulseR = 0;
   afterimages = []; coyoteTimer = 0; wasOnGround = false;
   jumpHeld = false; canDoubleJump = false;
+  darkWallX = -200; darkWallActive = false;
 }
 
 function overlaps(a, b) {
@@ -823,6 +871,23 @@ function drawGlareZones() {
   }
 }
 
+function drawDarkZones() {
+  noStroke();
+  for (let dz of DARK_ZONES) {
+    let sx = dz.x - camX;
+    if (sx + dz.w < 0 || sx > width) continue;
+    let fadeW = 60;
+    fill(0, 0, 0, 255 * dz.intensity);
+    rect(sx + fadeW, 0, max(0, dz.w - fadeW * 2), height);
+    for (let f = 0; f < fadeW; f += 4) {
+      let a = map(f, 0, fadeW, 0, 255 * dz.intensity);
+      fill(0, 0, 0, a);
+      rect(sx + f, 0, 4, height);
+      rect(sx + dz.w - f - 4, 0, 4, height);
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  VISUAL — Neon platforms
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -830,7 +895,9 @@ function drawGlareZones() {
 function drawPlatformNeon(p, a, hi) {
   noStroke(); fill(0, 255, 140, 22 * a); rect(p.x - 3, p.y - 3, p.w + 6, p.h + 6);
   fill(12, 45, 32, 210 * a); rect(p.x, p.y, p.w, p.h);
-  stroke(0, 255, 140, 190 * a); strokeWeight(2); line(p.x, p.y, p.x + p.w, p.y);
+  fill(0, 255, 140, 90 * a); rect(p.x, p.y, p.w, 2);
+  fill(0, 255, 140, 28 * a); rect(p.x, p.y + 2, p.w, min(5, p.h - 2));
+  stroke(0, 255, 140, 230 * a); strokeWeight(2.5); line(p.x, p.y, p.x + p.w, p.y);
   stroke(0, 255, 140, 65 * a); strokeWeight(1);
   line(p.x, p.y, p.x, p.y + p.h); line(p.x + p.w, p.y, p.x + p.w, p.y + p.h);
   stroke(0, 255, 140, 30 * a); line(p.x, p.y + p.h, p.x + p.w, p.y + p.h);
@@ -843,7 +910,9 @@ function drawPlatformNeon(p, a, hi) {
 function drawMovingPlatformNeon(p, a, hi) {
   noStroke(); fill(80, 40, 255, 18 * a); rect(p.x - 3, p.y - 3, p.w + 6, p.h + 6);
   fill(22, 12, 55, 210 * a); rect(p.x, p.y, p.w, p.h);
-  stroke(120, 80, 255, 190 * a); strokeWeight(2); line(p.x, p.y, p.x + p.w, p.y);
+  fill(120, 80, 255, 85 * a); rect(p.x, p.y, p.w, 2);
+  fill(120, 80, 255, 25 * a); rect(p.x, p.y + 2, p.w, min(5, p.h - 2));
+  stroke(120, 80, 255, 230 * a); strokeWeight(2.5); line(p.x, p.y, p.x + p.w, p.y);
   stroke(120, 80, 255, 65 * a); strokeWeight(1);
   line(p.x, p.y, p.x, p.y + p.h); line(p.x + p.w, p.y, p.x + p.w, p.y + p.h);
   stroke(120, 80, 255, 30 * a); line(p.x, p.y + p.h, p.x + p.w, p.y + p.h);
@@ -862,7 +931,7 @@ function drawPlatforms() {
   for (let p of platforms) {
     if (p.x + p.w < vL || p.x > vR) continue;
     let hi = (focusFade > 0 && distToRect(pcx, pcy, p.x, p.y, p.w, p.h) <= FOCUS_RADIUS) ? focusFade : 0;
-    drawPlatformNeon(p, lerp(0.45, 1.0, hi), hi);
+    drawPlatformNeon(p, lerp(lerp(0.45, 0.98, visionFloor()), 1.0, hi), hi);
   }
   noStroke();
 }
@@ -871,7 +940,7 @@ function drawMovingPlatforms() {
   let pcx = player.x + player.w / 2, pcy = player.y + player.h / 2;
   for (let mp of movingPlatforms) {
     let hi = (focusFade > 0 && distToRect(pcx, pcy, mp.x, mp.y, mp.w, mp.h) <= FOCUS_RADIUS) ? focusFade : 0;
-    drawMovingPlatformNeon(mp, lerp(0.45, 1.0, hi), hi);
+    drawMovingPlatformNeon(mp, lerp(lerp(0.45, 0.98, visionFloor()), 1.0, hi), hi);
   }
   noStroke();
 }
@@ -934,10 +1003,11 @@ function drawPlayer() {
 
 function drawEnemyNeon(e, a, hi) {
   let ex = e.x, ey = e.y, ew = e.w, eh = e.h; noStroke();
-  fill(255, 40, 100, 28 * a); rect(ex - 3, ey - 3, ew + 6, eh + 6);
-  fill(55, 8, 22, 210 * a); rect(ex, ey, ew, eh);
-  stroke(255, 40, 100, 190 * a); strokeWeight(1.5); line(ex, ey, ex + ew, ey);
-  stroke(255, 40, 100, 220 * a); strokeWeight(2);   line(ex + 3, ey + 8, ex + ew - 3, ey + 8);
+  fill(255, 70, 20, 60 * a); rect(ex - 3, ey - 3, ew + 6, eh + 6);
+  fill(55, 14, 4, 210 * a); rect(ex, ey, ew, eh);
+  fill(255, 160, 80, 120 * a); rect(ex + 1, ey + 6, ew - 2, 3);
+  stroke(255, 70, 20, 230 * a); strokeWeight(1.5); line(ex, ey, ex + ew, ey);
+  stroke(255, 70, 20, 255 * a); strokeWeight(2.5);  line(ex + 3, ey + 8, ex + ew - 3, ey + 8);
   if (hi > 0) {
     stroke(0, 255, 240, hi * 200); strokeWeight(2); noFill(); rect(ex - 1, ey - 1, ew + 2, eh + 2);
   }
@@ -952,7 +1022,7 @@ function drawEnemies() {
   for (let e of enemies) {
     if (e.x + e.w < vL || e.x > vR) continue;
     let hi = (focusFade > 0 && distToRect(pcx, pcy, e.x, e.y, e.w, e.h) <= FOCUS_RADIUS) ? focusFade : 0;
-    drawEnemyNeon(e, lerp(0.45, 1.0, hi), hi);
+    drawEnemyNeon(e, lerp(lerp(0.70, 0.98, visionFloor()), 1.0, hi), hi);
   }
 }
 
@@ -990,9 +1060,11 @@ function drawLasers() {
     if (isOn) {
       let flicker = 0.7 + 0.3 * sin(frameCount * 0.5);
       noStroke();
-      fill(255, 20, 60, 12 * vis);  rect(l.x - 2, l.y - 6, l.w + 4, l.h + 12);
-      fill(255, 40, 80, 160 * vis * flicker); rect(l.x, l.y, l.w, l.h);
-      fill(255, 180, 180, 90 * vis * flicker); rect(l.x, l.y + 1, l.w, 2);
+      fill(255, 20, 60, 10 * vis);  rect(l.x - 8, l.y - 14, l.w + 16, l.h + 28);
+      fill(255, 40, 80, 25 * vis);  rect(l.x - 4, l.y - 8,  l.w + 8,  l.h + 16);
+      fill(255, 20, 60, 18 * vis);  rect(l.x - 2, l.y - 6,  l.w + 4,  l.h + 12);
+      fill(255, 40, 80, 230 * vis * flicker); rect(l.x, l.y, l.w, l.h);
+      fill(255, 220, 200, 140 * vis * flicker); rect(l.x, l.y + 1, l.w, 2);
     } else {
       let dotA = (cycle / (LASER_CYCLE * (1 - LASER_ON_FRAC))) * 120 * vis;
       noStroke(); fill(255, 40, 80, dotA);
@@ -1119,6 +1191,7 @@ function drawFocusIndicator() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function drawHUD() {
+  drawProgressBar();
   // Double jump indicator — top-left
   let dx = 14, dy = 10, dw = 72, dh = 22;
   noStroke();
@@ -1184,6 +1257,7 @@ function resetGame() {
   deathCount = 0; deathShakeTimer = 0; deathFlashTimer = 0;
   afterimages = []; coyoteTimer = 0; wasOnGround = false;
   jumpHeld = false; canDoubleJump = false;
+  activeCheckpointIdx = -1; darkWallX = -200; darkWallActive = false;
   menuSelection = 0;
   gameState = "start"; introTimer = 0; winTimer = 0;
 }
@@ -1200,6 +1274,154 @@ function startMusic() {
     bgMusic.setVolume(0.33);
     bgMusic.loop();
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CHECKPOINTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateCheckpoints() {
+  for (let i = 0; i < checkpoints.length; i++) {
+    let cp = checkpoints[i];
+    if (!cp.activated && overlaps(player, cp)) {
+      cp.activated = true;
+      activeCheckpointIdx = i;
+      cpPulseTimers[i] = 45;
+      playSfx(sfxFocus, 0.45);
+    }
+    if (cpPulseTimers[i] > 0) cpPulseTimers[i]--;
+  }
+}
+
+function drawCheckpoints() {
+  let vL = camX - 50, vR = camX + width + 50;
+  for (let i = 0; i < checkpoints.length; i++) {
+    let cp = checkpoints[i];
+    if (cp.x + cp.w < vL || cp.x > vR) continue;
+    let baseA = cp.activated ? 1.0 : 0.45;
+    let cr = cp.activated ? 0 : 80;
+    let cg = cp.activated ? 255 : 200;
+    let cb = cp.activated ? 240 : 220;
+    noStroke();
+    let outerPulse = cpPulseTimers[i] > 0 ? 60 * (0.5 + 0.5 * sin(frameCount * 0.3)) : 0;
+    fill(cr, cg, cb, (28 + outerPulse) * baseA);
+    rect(cp.x - 3, cp.y - 3, cp.w + 6, cp.h + 6);
+    fill(cr, cg, cb, 180 * baseA);
+    rect(cp.x, cp.y, cp.w, cp.h);
+    fill(cr, cg, cb, (220 + 35 * sin(frameCount * 0.06)) * baseA);
+    rect(cp.x, cp.y, cp.w, 4);
+    stroke(cr, cg, cb, 120 * baseA); strokeWeight(1);
+    line(cp.x + cp.w / 2, cp.y, cp.x + cp.w / 2, cp.y + cp.h);
+    noStroke();
+    if (cpPulseTimers[i] > 0) {
+      let pr = map(cpPulseTimers[i], 45, 0, 0, 60);
+      let pa = map(cpPulseTimers[i], 45, 0, 200, 0);
+      noFill(); stroke(0, 255, 240, pa); strokeWeight(2);
+      ellipse(cp.x + cp.w / 2, cp.y + cp.h / 2, pr * 2, pr * 2);
+      noStroke();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VISION POWER-UP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function visionFloor() {
+  if (visionBoostTimer <= 0) return 0;
+  if (visionBoostTimer > VISION_FADE_FRAMES) return 1.0;
+  return visionBoostTimer / VISION_FADE_FRAMES;
+}
+
+function updateVisionPickup() {
+  if (visionBoostTimer > 0) visionBoostTimer--;
+  if (visionPickup && overlaps(player, visionPickup)) {
+    visionPickup = null;
+    visionBoostTimer = VISION_BOOST_FRAMES;
+    playSfx(sfxFocus, 0.55);
+  }
+}
+
+function drawVisionPickup() {
+  if (!visionPickup) return;
+  let vp = visionPickup;
+  if (vp.x + vp.w < camX - 50 || vp.x > camX + width + 50) return;
+  let cx = vp.x + vp.w / 2, cy = vp.y + vp.h / 2;
+  let pulse = 0.6 + 0.4 * sin(frameCount * 0.1);
+  push(); translate(cx, cy); rotate(frameCount * 0.03);
+  noStroke();
+  fill(0, 255, 200, 40 * pulse); rect(-vp.w / 2 - 4, -vp.h / 2 - 4, vp.w + 8, vp.h + 8);
+  fill(0, 220, 180, 200);
+  beginShape();
+  vertex(0, -vp.h / 2); vertex(vp.w / 2, 0);
+  vertex(0, vp.h / 2);  vertex(-vp.w / 2, 0);
+  endShape(CLOSE);
+  fill(180, 255, 240, 220 * pulse);
+  beginShape();
+  vertex(0, -vp.h / 4); vertex(vp.w / 4, 0);
+  vertex(0, vp.h / 4);  vertex(-vp.w / 4, 0);
+  endShape(CLOSE);
+  pop();
+  noStroke(); fill(0, 255, 200, 18 * pulse);
+  rect(cx - 3, cy - vp.h * 2, 6, vp.h * 4);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DARKNESS WALL
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateDarkWall() {
+  if (!darkWallActive && player.x >= 2600) {
+    darkWallActive = true;
+    darkWallX = player.x - 300;
+  }
+  if (!darkWallActive) return;
+  darkWallX += DARK_WALL_SPEED;
+  if (player.x + player.w < darkWallX - 10) triggerDeath();
+}
+
+function drawDarkWall() {
+  if (!darkWallActive) return;
+  let sx = darkWallX - camX;
+  if (sx > width) return;
+  noStroke();
+  fill(0, 0, 0, 240);
+  rect(0, 0, min(sx, width), height);
+  for (let i = 0; i < 40; i++) {
+    let ex = sx + i;
+    if (ex < 0 || ex > width) continue;
+    fill(0, 0, 0, map(i, 0, 40, 210, 0));
+    rect(ex, 0, 1, height);
+  }
+  if (sx >= -6 && sx <= width + 6) {
+    noStroke();
+    fill(255, 20, 60, 120); rect(sx - 2, 0, 4, height);
+    fill(255, 80, 40, 60);  rect(sx - 6, 0, 6, height);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PROGRESS BAR
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function drawProgressBar() {
+  let barW = 300, barH = 6, barX = width / 2 - barW / 2, barY = 8;
+  let progress = constrain(player.x / (WORLD_W - player.w), 0, 1);
+  noStroke();
+  fill(20, 16, 35, 200); rect(barX - 2, barY - 2, barW + 4, barH + 4, 3);
+  fill(35, 28, 55, 180); rect(barX, barY, barW, barH, 2);
+  let pulse = 0.85 + 0.15 * sin(frameCount * 0.08);
+  fill(0, 255, 240, 200 * pulse); rect(barX, barY, barW * progress, barH, 2);
+  if (progress > 0.01) {
+    fill(255, 255, 255, 180 * pulse);
+    rect(barX + barW * progress - 2, barY, 2, barH);
+  }
+  for (let cp of LEVEL_CHECKPOINTS) {
+    let tx = barX + (cp.x / WORLD_W) * barW;
+    fill(0, 255, 240, 160); rect(tx - 1, barY - 1, 2, barH + 2);
+  }
+  stroke(0, 255, 240, 80); strokeWeight(1); noFill();
+  rect(barX, barY, barW, barH, 2); noStroke();
 }
 
 function distToRect(px, py, rx, ry, rw, rh) {
