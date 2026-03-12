@@ -248,6 +248,16 @@ function fitCanvas() {
   document.querySelector("canvas").style.transform = "translate(-50%, -50%) scale(" + sc + ")";
 }
 
+// Returns mouse position in canvas coordinates regardless of CSS scale
+function cmx() {
+  let r = document.querySelector("canvas").getBoundingClientRect();
+  return (winMouseX - r.left) * (800 / r.width);
+}
+function cmy() {
+  let r = document.querySelector("canvas").getBoundingClientRect();
+  return (winMouseY - r.top) * (450 / r.height);
+}
+
 // ── Level initialisation ───────────────────────────────────────────────────────
 function initLevel() {
   // Shallow-copy mutable arrays from const level data
@@ -440,9 +450,10 @@ function drawStartScreen() {
   let btnW = 180, btnH = 34;
   let startBtnY = 290, exitBtnY = 335;
   let btnX = width / 2 - btnW / 2;
-  if (mouseX >= btnX && mouseX <= btnX + btnW) {
-    if (mouseY >= startBtnY && mouseY <= startBtnY + btnH) menuSelection = 0;
-    if (mouseY >= exitBtnY  && mouseY <= exitBtnY  + btnH) menuSelection = 1;
+  let mx = cmx(), my = cmy();
+  if (mx >= btnX && mx <= btnX + btnW) {
+    if (my >= startBtnY && my <= startBtnY + btnH) menuSelection = 0;
+    if (my >= exitBtnY  && my <= exitBtnY  + btnH) menuSelection = 1;
   }
 
   let cx = width / 2;
@@ -795,15 +806,15 @@ function keyReleased() {
 }
 
 function mousePressed() {
+  let mx = cmx(), my = cmy();
   if (gameState === "start") {
     let btnW = 180, btnH = 34, btnX = width / 2 - 90, startBtnY = 290;
-    if (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= startBtnY && mouseY <= startBtnY + btnH) {
+    if (mx >= btnX && mx <= btnX + btnW && my >= startBtnY && my <= startBtnY + btnH) {
       gameState = "intro"; introTimer = 0; startMusic();
     }
     return;
   }
   if (gameState === "win") {
-    // Click anywhere on win screen restarts — reliable across all scale factors
     resetGame();
   }
 }
