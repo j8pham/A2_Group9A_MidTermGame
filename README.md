@@ -56,4 +56,12 @@ Press `START GAME` on the title screen using `Enter` or by clicking the button w
 
 ## References
 
-Kondrashev, N. 2025. Cyberpunk. MP3 audio. Pixabay. Published December 2, 2025. https://pixabay.com/music/
+Dragon-Studeio. 2026. Cartoon Jump. MP3 audio. Pixabay. Published January 8, 2026. https://pixabay.com/sound-effects/film-special-effects-cartoon-jump-463196/
+
+Dragon-Studio. 2026. Epic Whoosh. MP3 audio. Pixabay. Published February 2, 2026. https://pixabay.com/sound-effects/film-special-effects-epic-whoosh-478371/
+
+Dragon-Studio. 2026. Power Off. MP3 Audio. Pixabay. Published August 7, 2025. https://pixabay.com/sound-effects/film-special-effects-power-off-386180/
+
+Kondrashev, Nikita. 2025. Cyberpunk. MP3 audio. Pixabay. Published December 2, 2025. https://pixabay.com/music/
+
+SRJA_Gaming (Freesound). 2022. Retro Video Game Death. MP3 audio. Pixabay. Published August 25, 2022. https://pixabay.com/sound-effects/film-special-effects-retro-video-game-death-95730/
